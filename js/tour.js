@@ -421,7 +421,8 @@ const PHONE = { pos: new V3(), n: new V3() };
   phoneCtx = c.getContext('2d');
   phoneTex = new THREE.CanvasTexture(c);
   phoneTex.colorSpace = THREE.SRGBColorSpace;
-  phoneTex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  phoneTex.generateMipmaps = false;          // it is redrawn while scrolling: no smaller copies to rebuild each time
+  phoneTex.minFilter = THREE.LinearFilter;
   const screen = mesh(new THREE.PlaneGeometry(0.082, 0.178), new THREE.MeshBasicMaterial({ map: phoneTex, toneMapped: false, fog: false }), phone, [0, 0, 0.0056]);
   screen.castShadow = false;
   phoneLight = new THREE.PointLight(0xb9a0ff, 0.5, 2.2, 2);
@@ -621,6 +622,46 @@ let ball;
   beacon(4, '⚽', 7);
 }
 
+/* ---------- One mesh per place for everything that never moves ----------
+   Trees, benches, the café and so on are hundreds of small parts. Drawn one by one they are what slows
+   a phone down, so each place's still parts are joined into a single mesh, coloured per corner. */
+function bake(place, moving) {
+  place.updateMatrixWorld(true);
+  const inverse = new THREE.Matrix4().copy(place.matrixWorld).invert();
+  const local = new THREE.Matrix4();
+  const groups = new Map();          // flat-shaded and smooth parts are kept apart
+  const used = [];
+  place.traverse((o) => {
+    const m = o.material;
+    if (!o.isMesh || !o.castShadow || !m.isMeshStandardMaterial || m.map || m.transparent || m.vertexColors || m.metalness > 0) return;
+    for (let a = o; a && a !== place; a = a.parent) if (moving.includes(a)) return;
+    const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    g.applyMatrix4(local.multiplyMatrices(inverse, o.matrixWorld));
+    const key = m.flatShading ? 'flat' : 'smooth';
+    if (!groups.has(key)) groups.set(key, { pos: [], nor: [], col: [] });
+    const out = groups.get(key), pos = g.attributes.position.array, nor = g.attributes.normal.array;
+    for (let i = 0; i < pos.length; i += 3) {
+      out.pos.push(pos[i], pos[i + 1], pos[i + 2]);
+      out.nor.push(nor[i], nor[i + 1], nor[i + 2]);
+      out.col.push(m.color.r, m.color.g, m.color.b);
+    }
+    g.dispose();
+    used.push(o);
+  });
+  for (const o of used) o.removeFromParent();
+  for (const [key, data] of groups) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(data.pos, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(data.nor, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(data.col, 3));
+    mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, flatShading: key === 'flat' }), place);
+  }
+}
+{
+  const moving = [...people.map((P) => P.g), dog, phone, ball, ...beacons.map((b) => b.g)];
+  for (const place of places) bake(place, moving);
+}
+
 /* ---------- The world map ---------- */
 const MAP = { lon0: -0.12, lat0: 51.5, far: 290 };
 const toMap = (lat, lon) => v(lon - MAP.lon0, 0, -(lat - MAP.lat0));
@@ -784,9 +825,8 @@ function drawPhone(s, t) {
     // the card at the bottom: who is in
     const up = smooth(0.56, 0.62, s);
     const top = lerp(H + 20, 800, up);
-    g.shadowColor = 'rgba(40,10,90,.25)'; g.shadowBlur = 40; g.shadowOffsetY = -6;
+    g.fillStyle = 'rgba(40,10,90,.10)'; rrect(g, 0, top - 10, W, 420, 50); g.fill();
     g.fillStyle = '#fff'; rrect(g, 0, top, W, 420, 44); g.fill();
-    g.shadowColor = 'transparent';
     g.fillStyle = '#e2e8f0'; rrect(g, W / 2 - 34, top + 16, 68, 8, 4); g.fill();
     g.textAlign = 'left'; g.textBaseline = 'alphabetic';
     g.fillStyle = INK; g.font = font(42, 800); g.fillText('🏃 Morning run', 34, top + 86);
@@ -925,7 +965,7 @@ function cameraAt(p) {
   const k = [shot[Math.max(0, i - 1)], shot[i], shot[i + 1], shot[Math.min(shot.length - 1, i + 2)]];
   for (let j = 0; j < 4; j++) keyInto(k[j], A.pos[j], A.look[j]);
   let t = clamp((p - k[1].p) / (k[2].p - k[1].p));
-  t = lerp(t, t * t * (3 - 2 * t), 0.55);
+  t = lerp(t, t * t * (3 - 2 * t), 0.3);
   for (const [pts, out] of [[A.pos, camPos], [A.look, camLook]]) {
     tangent(pts[0], pts[1], pts[2], i > 0, true, tan0);
     tangent(pts[1], pts[2], pts[3], true, i + 2 < shot.length, tan1);
@@ -940,13 +980,23 @@ const wash = document.querySelector('.wash');
 const washDay = document.querySelector('.wash__day');
 const washTime = document.querySelector('.wash__time');
 const washClock = document.querySelector('.wash__clock');
+let washOn = false, pastStage = null;
 const topbar = document.querySelector('.topbar');
 let lastTime = '', lastRail = -1;
+// write a CSS variable only when its value changes, so a still frame costs the page nothing
+const written = new Map();
+function setVar(el, name, value) {
+  let seen = written.get(el);
+  if (!seen) written.set(el, seen = {});
+  if (seen[name] === value) return;
+  seen[name] = value;
+  el.style.setProperty(name, value);
+}
 function setWords(p) {
   for (const c of caps) {
     const o = smooth(c.from, c.from + 0.022, p) * (1 - smooth(c.to - 0.022, c.to, p));
     const on = o > 0.01;
-    c.el.style.setProperty('--o', o.toFixed(3));
+    setVar(c.el, '--o', o.toFixed(2));
     if (on !== c.on) { c.on = on; c.el.classList.toggle('is-on', on); }
   }
   let now = 0;
@@ -955,11 +1005,11 @@ function setWords(p) {
     lastRail = now;
     rail.forEach((r, i) => { r.el.classList.toggle('is-now', i === now); r.el.classList.toggle('is-done', i < now); });
   }
-  stage.style.setProperty('--rail', (1 - smooth(0.9, 0.94, p)).toFixed(3));
+  setVar(stage, '--rail', (1 - smooth(0.9, 0.94, p)).toFixed(2));
   // the wash and its clock
   const o = smooth(0.29, 0.312, p) * (1 - smooth(0.352, 0.385, p));
-  wash.style.setProperty('--o', o.toFixed(3));
-  wash.classList.toggle('is-on', o > 0.005);
+  setVar(wash, '--o', o.toFixed(2));
+  if ((o > 0.005) !== washOn) { washOn = o > 0.005; wash.classList.toggle('is-on', washOn); }
   if (o > 0.005) {
     const c = smooth(0.3, 0.348, p);
     const mins = 21 * 60 + 14 + Math.round(646 * c);
@@ -971,16 +1021,18 @@ function setWords(p) {
       washDay.textContent = mins >= 24 * 60 ? 'Saturday' : 'Friday';
     }
     const done = smooth(0.94, 1, c);
-    washClock.style.setProperty('--n', done.toFixed(3));
-    washClock.style.setProperty('--s', (0.92 + 0.08 * c + done * 0.05).toFixed(3));
+    setVar(washClock, '--n', done.toFixed(2));
+    setVar(washClock, '--s', (0.92 + 0.08 * c + done * 0.05).toFixed(3));
   }
 }
 
 /* ---------- Size ---------- */
-let W = 1, H = 1, aspect = 1;
+let W = 1, H = 1, aspect = 1, storyHeight = 1, barHeight = 60;
 function resize() {
   W = stage.clientWidth; H = stage.clientHeight;
   if (!W || !H) return;
+  storyHeight = story.offsetHeight;
+  barHeight = topbar ? topbar.offsetHeight : 60;
   aspect = W / H;
   renderer.setSize(W, H, false);
   camera.aspect = aspect;
@@ -1000,14 +1052,15 @@ function resize() {
 
 /* ---------- Every frame ---------- */
 const clock = new THREE.Timer();
-let target = 0, pNow = 0, raf = 0, visible = true, lastPhone = -1, started = false, slow = 0;
+let target = 0, pNow = 0, raf = 0, visible = true, lastPhone = -1, started = false, slow = 0, phoneDrawn = -1;
 const look = v(), side = v();
 function readScroll() {
   const rect = story.getBoundingClientRect();
-  const span = story.offsetHeight - stage.offsetHeight;
+  const span = storyHeight - H;
   target = span > 0 ? clamp(-rect.top / span) : 0;
   visible = rect.bottom > 0 && rect.top < window.innerHeight;
-  root.classList.toggle('past-stage', rect.bottom <= (topbar ? topbar.offsetHeight : 60) + 6);
+  const past = rect.bottom <= barHeight + 6;
+  if (past !== pastStage) { pastStage = past; root.classList.toggle('past-stage', past); }
 }
 function frame() {
   raf = 0;
@@ -1038,7 +1091,8 @@ function frame() {
     host.head.rotation.x = 0.32 + Math.sin(t * 0.8) * 0.02;
     // the form is filled in while the first words are up, the map and the people joining while the second are
     const ps = p < 0.215 ? 0.47 * clamp((p - 0.135) / 0.08) : 0.47 + 0.53 * clamp((p - 0.215) / 0.08);
-    if (Math.abs(ps - lastPhone) > 0.0008 || (p < 0.34 && (t * 4 | 0) !== ((t - dt) * 4 | 0))) { lastPhone = ps; drawPhone(ps, t); }
+    const due = Math.abs(ps - lastPhone) > 0.0008 ? t - phoneDrawn > 0.03 : p < 0.34 && t - phoneDrawn > 0.25;
+    if (due) { lastPhone = ps; phoneDrawn = t; drawPhone(ps, t); }
   }
   const lit = 1 - shrink;
   lampLight.intensity = places[0].visible ? 26 * lit : 0;
@@ -1150,9 +1204,11 @@ function frame() {
   }
 
   renderer.render(scene, camera);
+  if (window.__tourStats) window.__tourStats = { calls: renderer.info.render.calls, tris: renderer.info.render.triangles, dpr };
   // if the device can't keep up, draw fewer pixels rather than drop frames
-  slow = dt > 0.03 ? slow + 1 : Math.max(0, slow - 0.5);
-  if (slow > 45 && dpr > 1) {
+  // (an iPhone in Low Power Mode runs at 30 frames a second by design: that is not counted as slow)
+  slow = dt > 0.042 ? slow + 1 : Math.max(0, slow - 0.5);
+  if (slow > 24 && dpr > 1) {
     slow = 0;
     dpr = Math.max(1, dpr - 0.4);
     renderer.setPixelRatio(dpr);

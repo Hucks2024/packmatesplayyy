@@ -15,7 +15,7 @@
   <link rel="icon" href="images/icon.png">
   <link rel="apple-touch-icon" href="images/apple-icon.png">
   <link rel="preload" href="fonts/open-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="css/styles.css?v=2">
+  <link rel="stylesheet" href="css/styles.css?v=3">
   <script>
     /* The 3D tour runs only where the browser can draw it. Visitors who asked their device for less motion
        get the still page with a "See it in 3D" button instead. ?3d=0 switches it off, ?3d=1 forces it on. */
@@ -36,7 +36,7 @@
         }
       } catch (e) { return; }
       root.classList.add('tour');
-      ['js/vendor/three.module.min.js', 'js/land.js', 'js/tour.js?v=2'].forEach(function (href) {
+      ['js/vendor/three.module.min.js', 'js/land.js', 'js/tour.js?v=3'].forEach(function (href) {
         var link = document.createElement('link');
         link.rel = 'modulepreload'; link.href = href;
         document.head.appendChild(link);
@@ -222,6 +222,6 @@
     </div>
   </footer>
 
-  <script src="js/main.js?v=2" defer></script>
+  <script src="js/main.js?v=3" defer></script>
 </body>
 </html>
