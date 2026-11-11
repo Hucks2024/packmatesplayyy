@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Packmates · find your people</title>
+  <meta name="description" content="Find your people. A free map of meetups near you: walks, runs, coffee and more. See how it works.">
+  <meta name="theme-color" content="#6d28d9">
+  <meta name="apple-itunes-app" content="app-id=6822292523">
+  <meta property="og:title" content="Packmates · find your people">
+  <meta property="og:description" content="Find your people. A free map of meetups near you: walks, runs, coffee and more.">
+  <meta property="og:image" content="images/og.png">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="images/icon.png">
+  <link rel="apple-touch-icon" href="images/apple-icon.png">
+  <link rel="preload" href="fonts/open-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="css/styles.css?v=1">
+  <script>
+    /* The 3D tour runs only where the browser can draw it. Visitors who asked their device for less motion
+       get the still page with a "See it in 3D" button instead. ?3d=0 switches it off, ?3d=1 forces it on. */
+    (function () {
+      var root = document.documentElement, want = null;
+      try { want = new URLSearchParams(location.search).get('3d'); } catch (e) {}
+      if (want === '0' || !('noModule' in HTMLScriptElement.prototype)) return;
+      try {
+        var gl = document.createElement('canvas').getContext('webgl2');
+        if (!gl) return;
+        var info = gl.getExtension('WEBGL_debug_renderer_info');
+        var chip = String((info && gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) || gl.getParameter(gl.RENDERER) || '');
+        var lose = gl.getExtension('WEBGL_lose_context');
+        if (lose) lose.loseContext();
+        if (want !== '1') {
+          if (/swiftshader|llvmpipe|softpipe|software/i.test(chip)) return;
+          if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { root.classList.add('can-3d'); return; }
+        }
+      } catch (e) { return; }
+      root.classList.add('tour');
+      ['js/vendor/three.module.min.js', 'js/land.js', 'js/tour.js?v=1'].forEach(function (href) {
+        var link = document.createElement('link');
+        link.rel = 'modulepreload'; link.href = href;
+        document.head.appendChild(link);
+      });
+    })();
+  </script>
+</head>
+<body>
+  <a class="skip" href="#how">Skip to the page</a>
+
+  <header class="topbar">
+    <a class="brand" href="#top" aria-label="Packmates, back to the top">
+      <img src="images/icon.png" alt="" width="34" height="34">
+      <span>packmates</span>
+    </a>
+    <nav class="topbar__nav" aria-label="Main">
+      <a href="#how">How it works</a>
+      <a href="#rules">House rules</a>
+      <a href="#faq">Questions</a>
+    </nav>
+    <a class="btn btn--white btn--small" href="https://www.packmates.live">Join free</a>
+  </header>
+
+  <main id="top">
+    <!-- The tour. With 3D on (html.tour) this section is very tall and the stage sticks to the screen:
+         scrolling moves the camera through the story, and each .cap card shows for its part of the scroll.
+         Without 3D the same cards are simply stacked as a normal page. See js/tour.js. -->
+    <section class="story" aria-label="How Packmates works">
+      <div class="stage">
+        <canvas class="stage__canvas" aria-hidden="true"></canvas>
+        <div class="stage__shade" aria-hidden="true"></div>
+
+        <!-- The jump through the phone: a wash of the brand colours with the clock running to the meetup time. -->
+        <div class="wash" aria-hidden="true">
+          <div class="wash__clock">
+            <span class="wash__day">Friday</span>
+            <span class="wash__time">21:14</span>
+            <span class="wash__note">Saturday, 8:00. It's time.</span>
+          </div>
+        </div>
+
+        <div class="caps">
+          <article class="cap cap--hero" data-from="-1" data-to="0.065">
+            <p class="cap__kicker">A free map of meetups near you</p>
+            <h1>find your people</h1>
+            <p class="cap__lead">Walks, runs, coffee and more. Pick one, turn up, make friends.</p>
+            <div class="cap__cta">
+              <a class="store" href="https://apps.apple.com/app/packmates/id6822292523"><img src="images/app-store.svg" alt="Download on the App Store" width="135" height="40"></a>
+              <a class="btn btn--line" href="https://www.packmates.live">Open the map</a>
+            </div>
+            <p class="cap__scroll" aria-hidden="true"><span></span>Scroll to see how it works</p>
+            <a class="btn btn--line optin" href="?3d=1">See it in 3D</a>
+          </article>
+
+          <article class="cap" data-from="0.095" data-to="0.195">
+            <p class="cap__step"><b>1</b>Post a meetup</p>
+            <h2>Someone makes a plan.</h2>
+            <p>Tap <strong>Post</strong> and answer a few questions: what, where and when. That's it. A pin lands on the map.</p>
+          </article>
+
+          <article class="cap" data-from="0.215" data-to="0.295">
+            <p class="cap__step"><b>2</b>Tap I'm in</p>
+            <h2>Strangers nearby see the pin.</h2>
+            <p>They tap <strong>I'm in</strong>. No group chats, no small talk first. Nobody can message you.</p>
+          </article>
+
+          <article class="cap" data-from="0.385" data-to="0.475">
+            <p class="cap__step"><b>3</b>Turn up</p>
+            <h2>The time hits. Everyone turns up.</h2>
+            <p>A run that was a pin on a map last night is now five people, out of breath, laughing.</p>
+          </article>
+
+          <article class="cap" data-from="0.515" data-to="0.585">
+            <p class="cap__step"><b>☕</b>Coffee</p>
+            <h2>Not a runner? Grab a coffee.</h2>
+            <p>One table, a few new faces, somewhere public. The easiest hello there is.</p>
+          </article>
+
+          <article class="cap" data-from="0.625" data-to="0.69">
+            <p class="cap__step"><b>🚶</b>Walks</p>
+            <h2>Or take the long way round.</h2>
+            <p>A walk in the park, a hike up the hill. Dogs welcome.</p>
+          </article>
+
+          <article class="cap" data-from="0.725" data-to="0.79">
+            <p class="cap__step"><b>⚽</b>And more</p>
+            <h2>Whatever gets you out.</h2>
+            <p>A kickabout, a swim, a board game. If you'd do it with friends, post it.</p>
+          </article>
+
+          <article class="cap cap--quote" data-from="0.835" data-to="0.905">
+            <blockquote>Every stranger is a door to a new world. Open more doors, expand your world.</blockquote>
+          </article>
+
+          <article class="cap cap--end" data-from="0.93" data-to="2">
+            <h2>Every pin is a meetup.<br>One of them is yours.</h2>
+            <p>Packmates is free. Find a meetup, tap I'm in, turn up.</p>
+            <div class="cap__cta">
+              <a class="store" href="https://apps.apple.com/app/packmates/id6822292523"><img src="images/app-store.svg" alt="Download on the App Store" width="135" height="40"></a>
+              <a class="btn btn--white" href="https://www.packmates.live">Join free</a>
+            </div>
+          </article>
+        </div>
+
+        <ol class="rail" aria-hidden="true">
+          <li data-at="0">Hello</li>
+          <li data-at="0.095">Post</li>
+          <li data-at="0.215">I'm in</li>
+          <li data-at="0.385">Turn up</li>
+          <li data-at="0.515">Coffee</li>
+          <li data-at="0.625">Walks</li>
+          <li data-at="0.725">More</li>
+          <li data-at="0.835">The map</li>
+        </ol>
+        <a class="stage__skip" href="#how">Skip the tour ↓</a>
+      </div>
+    </section>
+
+    <section class="band" id="how">
+      <div class="wrap">
+        <p class="eyebrow">How it works</p>
+        <h2 class="title">Three taps from the sofa to a new friend.</h2>
+        <ol class="steps">
+          <li class="reveal"><span class="steps__icon">📍</span><h3>Find a meetup</h3><p>Open the map. Every pin is something happening near you: a walk, a run, a coffee.</p></li>
+          <li class="reveal"><span class="steps__icon">🙌</span><h3>Tap I'm in</h3><p>One tap and you're on the list. You can see who else is coming. Can't go? Tap <em>I can't go now</em>.</p></li>
+          <li class="reveal"><span class="steps__icon">🤘</span><h3>Turn up</h3><p>Meet in public, look for the faces from the app, and get going. After your first meetup you can post your own.</p></li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="band band--tint" id="rules">
+      <div class="wrap split">
+        <div class="reveal">
+          <p class="eyebrow">House rules</p>
+          <h2 class="title">Simple, and the same for everyone.</h2>
+          <p class="diamond"><span>💎</span><strong>Everyone is Diamond+</strong> Everyone is treated equally in this app.</p>
+        </div>
+        <ul class="rules reveal">
+          <li>18+ only.</li>
+          <li>Be kind.</li>
+          <li>Meet in public.</li>
+          <li>A photo of your face, so people know who to look for.</li>
+          <li>No selling or advertising.</li>
+          <li>No means no.</li>
+          <li class="rules__flag">🚩 3 reports = banned for life.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="band" id="faq">
+      <div class="wrap wrap--narrow">
+        <p class="eyebrow">Questions</p>
+        <h2 class="title">Tap one.</h2>
+        <div class="faq">
+          <details class="reveal"><summary>What is Packmates?</summary><p>A free map of meetups. Pick one. Turn up. Nobody can message you.</p></details>
+          <details class="reveal"><summary>Who is it for?</summary><p>Everyone. Anyone 18 or over can join, and the host can choose an age range for their meetup.</p></details>
+          <details class="reveal"><summary>How do I go to a meetup?</summary><p>Tap a pin on the Map. Tap <strong>I'm in</strong>. Turn up. Can't go? Tap <strong>I can't go now</strong>.</p></details>
+          <details class="reveal"><summary>How do I post a meetup?</summary><p>Tap <strong>Post</strong> and answer a few questions. You can post after your first meetup.</p></details>
+          <details class="reveal"><summary>How do I stay safe?</summary><p>Stay in public. Tell a friend where you are. Feels wrong? Leave.</p></details>
+          <details class="reveal"><summary>Someone was rude</summary><p>Tap <strong>🚩 Report or block</strong> under their name. Blocking hides you from each other.</p></details>
+        </div>
+      </div>
+    </section>
+
+    <section class="finale">
+      <div class="wrap reveal">
+        <img src="images/icon-512.png" alt="" width="96" height="96">
+        <h2>Ready?</h2>
+        <p>Find your people. It's free.</p>
+        <div class="cap__cta">
+          <a class="store" href="https://apps.apple.com/app/packmates/id6822292523"><img src="images/app-store.svg" alt="Download on the App Store" width="135" height="40"></a>
+          <a class="btn btn--white" href="https://www.packmates.live">Join free</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap">
+      <p><a href="https://www.packmates.live/info">Info</a> · <a href="https://www.packmates.live">packmates.live</a></p>
+      <p>Packmates.live Ltd, company number 17555312, registered in England and Wales.</p>
+      <p class="foot__small">The 3D scenes and the pins on the world map are an illustration of how the app works, not live data.</p>
+    </div>
+  </footer>
+
+  <script src="js/main.js?v=1" defer></script>
+</body>
+</html>
