@@ -37,7 +37,8 @@ const pick = (list) => list[Math.floor(rnd() * list.length)];
 /* ---------- Renderer ---------- */
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 const smallScreen = Math.min(window.innerWidth, window.innerHeight) < 700;
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, smallScreen ? 1.75 : 2));
+let dpr = Math.min(window.devicePixelRatio || 1, 2);
+renderer.setPixelRatio(dpr);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.shadowMap.enabled = true;
 
@@ -351,7 +352,8 @@ function beacon(i, emoji, height = 6.2) {
 
 /* ---------- Place 0: evening, the host and the phone ---------- */
 const host = person({ top: 0x7c3aed, bottom: 0x1f2340, skin: 0xd9a273, hair: 0x2a1d18, style: 1, shoes: 0xffffff, h: 1 });
-let phone, phoneTex, phoneCtx, phoneLight;
+let phone, phoneTex, phoneCtx, phoneLight, lampLight;
+const floods = [];
 const PHONE = { pos: new V3(), n: new V3() };
 {
   const p = places[0];
@@ -378,9 +380,10 @@ const PHONE = { pos: new V3(), n: new V3() };
   mesh(G.cyl, mat(0x2b2540, 0.5), lamp, [0, 2.0, 0], [0.06, 4.0, 0.06]);
   mesh(G.cyl, mat(0x2b2540, 0.5), lamp, [0, 0.12, 0], [0.16, 0.24, 0.16]);
   mesh(G.sphere, new THREE.MeshBasicMaterial({ color: 0xffe2a8 }), lamp, [0, 4.1, 0], 0.26).castShadow = false;
-  const glow = new THREE.PointLight(0xffc37a, 26, 16, 1.8);
-  glow.position.set(0, 3.9, 0);
-  lamp.add(glow);
+  // lights sit on the town itself, so their number never changes: a change makes the browser rebuild every material, a visible stutter on phones
+  lampLight = new THREE.PointLight(0xffc37a, 26, 16, 1.8);
+  lampLight.position.copy(at(0, 1.7, 3.9, -1.2));
+  town.add(lampLight);
   p.add(lamp);
   // the city behind: blocks with lit windows
   const face = canvasTex(64, 128, (g, w, h) => {
@@ -422,12 +425,12 @@ const PHONE = { pos: new V3(), n: new V3() };
   const screen = mesh(new THREE.PlaneGeometry(0.082, 0.178), new THREE.MeshBasicMaterial({ map: phoneTex, toneMapped: false, fog: false }), phone, [0, 0, 0.0056]);
   screen.castShadow = false;
   phoneLight = new THREE.PointLight(0xb9a0ff, 0.5, 2.2, 2);
-  phoneLight.position.set(0, 0, 0.12);
-  phone.add(phoneLight);
   p.add(phone);
   phone.updateWorldMatrix(true, false);
   phone.getWorldPosition(PHONE.pos);
   phone.getWorldDirection(PHONE.n);
+  phoneLight.position.copy(PHONE.pos).addScaledVector(PHONE.n, 0.14);
+  town.add(phoneLight);
 }
 
 /* ---------- Place 1: sunrise, the run ---------- */
@@ -593,8 +596,9 @@ let ball;
     mesh(G.cyl, mat(0x2b2540, 0.5), pole, [0, 3, 0], [0.07, 6, 0.07]);
     mesh(G.box, new THREE.MeshBasicMaterial({ color: 0xfff1cf }), pole, [0, 6.1, 0.1], [0.9, 0.45, 0.12], [0.5, -s * 0.5, 0]).castShadow = false;
     const flood = new THREE.PointLight(0xffe7c2, 60, 26, 1.7);
-    flood.position.set(0, 6, 0.4);
-    pole.add(flood);
+    flood.position.copy(at(4, s * 8.2, 6, -5.2));
+    town.add(flood);
+    floods.push(flood);
     p.add(pole);
   }
   const tops = [0xec4899, 0x7c3aed, 0xfbbf24, 0x34d399, 0x38bdf8];
@@ -996,7 +1000,7 @@ function resize() {
 
 /* ---------- Every frame ---------- */
 const clock = new THREE.Timer();
-let target = 0, pNow = 0, raf = 0, visible = true, lastPhone = -1, started = false;
+let target = 0, pNow = 0, raf = 0, visible = true, lastPhone = -1, started = false, slow = 0;
 const look = v(), side = v();
 function readScroll() {
   const rect = story.getBoundingClientRect();
@@ -1007,6 +1011,7 @@ function readScroll() {
 }
 function frame() {
   raf = 0;
+  readScroll();
   if (!visible || document.hidden) return;
   clock.update();
   const dt = Math.min(clock.getDelta(), 0.1), t = clock.getElapsed();
@@ -1020,26 +1025,29 @@ function frame() {
   // the town shrinks to a point on the map as the camera leaves
   const shrink = smooth(0.835, 0.885, p);
   const s = lerp(1, 0.012, shrink * shrink * (3 - 2 * shrink));
-  town.visible = shrink < 1;
+  const gone = shrink >= 1;
+  for (const g of places) if (gone) g.visible = false;
   town.scale.setScalar(s);
   ground.material.opacity = 1 - smooth(0.80, 0.845, p);
   ground.visible = ground.material.opacity > 0.01;
 
   // only the places near the story are drawn and moved
-  const near = (i, a, b) => { const on = p > a && p < b; places[i].visible = on; return on; };
-  if (near(0, -1, 0.36) | (p > 0.8 && (places[0].visible = true))) {
+  const near = (i, a, b) => { const on = !gone && ((p > a && p < b) || p > 0.8); places[i].visible = on; return on; };
+  if (near(0, -1, 0.36)) {
     host.hips.position.y = 0.92 + Math.sin(t * 1.6) * 0.004;
     host.head.rotation.x = 0.32 + Math.sin(t * 0.8) * 0.02;
     // the form is filled in while the first words are up, the map and the people joining while the second are
     const ps = p < 0.215 ? 0.47 * clamp((p - 0.135) / 0.08) : 0.47 + 0.53 * clamp((p - 0.215) / 0.08);
     if (Math.abs(ps - lastPhone) > 0.0008 || (p < 0.34 && (t * 4 | 0) !== ((t - dt) * 4 | 0))) { lastPhone = ps; drawPhone(ps, t); }
-    phoneLight.intensity = 0.45 + Math.sin(t * 2) * 0.05;
   }
-  if (near(1, 0.3, 0.56) | (p > 0.8 && (places[1].visible = true))) {
+  const lit = 1 - shrink;
+  lampLight.intensity = places[0].visible ? 26 * lit : 0;
+  phoneLight.intensity = places[0].visible ? (0.45 + Math.sin(t * 2) * 0.05) * lit : 0;
+  if (near(1, 0.3, 0.56)) {
     runPivot.rotation.y = t * 0.5;
     for (const P of runners) poseRun(P, t);
   }
-  if (near(2, 0.44, 0.66) | (p > 0.8 && (places[2].visible = true))) {
+  if (near(2, 0.44, 0.66)) {
     for (const P of sitters) poseSit(P, t);
     for (const puff of steam) {
       const u = (t * 0.35 + puff.phase) % 1;
@@ -1048,14 +1056,16 @@ function frame() {
       puff.m.material.opacity = 0.45 * Math.sin(u * Math.PI);
     }
   }
-  if (near(3, 0.55, 0.76) | (p > 0.8 && (places[3].visible = true))) {
+  if (near(3, 0.55, 0.76)) {
     walkPivot.rotation.y = t * 0.2;
     for (const P of walkers) poseWalk(P, t);
     dog.legs.forEach((l, i) => { l.rotation.x = Math.sin(t * 11 + (i % 3) * 2.1) * 0.6; });
     dog.tail.rotation.set(-0.7, 0, Math.sin(t * 14) * 0.6);
     dog.position.y = Math.abs(Math.sin(t * 11)) * 0.03;
   }
-  if (near(4, 0.66, 2)) {
+  const dusk = near(4, 0.66, 2);
+  for (const flood of floods) flood.intensity = dusk ? 60 * lit : 0;
+  if (dusk) {
     // the ball goes round in a star: 0 → 2 → 4 → 1 → 3
     const beat = t * 0.9, n = Math.floor(beat), u = beat - n;
     const from = players[(n * 2) % 5], to = players[((n + 1) * 2) % 5];
@@ -1085,7 +1095,7 @@ function frame() {
   town.updateMatrixWorld(true);
   cameraAt(p);
   // on a tall, narrow screen stand further back so the whole group fits
-  if (aspect < 0.9) camPos.sub(camLook).multiplyScalar(1 + 0.32 * smooth(0.33, 0.34, p) * (1 - smooth(0.79, 0.83, p))).add(camLook);
+  if (aspect < 0.9) camPos.sub(camLook).multiplyScalar(1 + 0.32 * smooth(0.33, 0.34, p) * (1 - smooth(0.79, 0.83, p)) + 0.22 * smooth(0.14, 0.18, p) * (1 - smooth(0.285, 0.31, p))).add(camLook);
   const pan = smooth(0.89, 0.97, p) * Math.sin(t * 0.11) * (MAP.pan || 0);
   camPos.x += pan; camLook.x += pan;
   // a little life in the hand that holds the camera
@@ -1097,7 +1107,8 @@ function frame() {
   // leave room for the words: push the scene to the right on wide screens, and up on tall ones
   const room = (1 - 0.5 * smooth(0.14, 0.18, p) * (1 - smooth(0.33, 0.34, p))) * (1 - smooth(0.81, 0.86, p));
   const end = smooth(0.88, 0.94, p);
-  const dx = aspect > 1.2 ? -0.11 * room : 0, dy = (aspect > 1.2 ? 0.02 : 0.11) * room + (aspect > 1.2 ? 0.13 : 0.16) * end;
+  const dx = aspect > 1.2 ? -0.11 * room : 0, dy = (aspect > 1.2 ? 0.02 : 0.13 + 0.07 * (1 - smooth(0.05, 0.1, p))) * room + (aspect > 1.2 ? 0.13 : 0.16) * end
+    + (aspect > 1.2 ? 0 : 0.11 * smooth(0.14, 0.18, p) * (1 - smooth(0.3, 0.33, p)));
   camera.setViewOffset(W, H, dx * W, dy * H, W, H);
   camera.near = clamp(reach * 0.08, 0.01, 2);
   camera.updateProjectionMatrix();
@@ -1108,7 +1119,7 @@ function frame() {
   look.copy(camLook);
   sun.target.position.copy(look);
   sun.position.copy(look).addScaledVector(sunDir, 40);
-  sun.castShadow = p < 0.84;
+  renderer.shadowMap.autoUpdate = p < 0.87;      // nothing left to cast a shadow once only the map is in view
 
   // the world map
   const mapIn = smooth(0.815, 0.86, p);
@@ -1139,6 +1150,14 @@ function frame() {
   }
 
   renderer.render(scene, camera);
+  // if the device can't keep up, draw fewer pixels rather than drop frames
+  slow = dt > 0.03 ? slow + 1 : Math.max(0, slow - 0.5);
+  if (slow > 45 && dpr > 1) {
+    slow = 0;
+    dpr = Math.max(1, dpr - 0.4);
+    renderer.setPixelRatio(dpr);
+    resize();
+  }
   if (!started) { started = true; root.classList.add('tour-ready'); }
   raf = requestAnimationFrame(frame);
 }
@@ -1159,6 +1178,15 @@ resize();
 readScroll();
 pNow = target;
 drawPhone(0, 0);
+// Build every material and send every texture to the graphics chip now, behind the fade-in,
+// so nothing stutters the first time a new place scrolls into view.
+world.visible = true;
+camera.position.set(0, 60, 120);
+camera.lookAt(0, 0, 0);
+setMood(0);
+renderer.compile(scene, camera);
+renderer.render(scene, camera);
+world.visible = false;
 if ('ResizeObserver' in window) new ResizeObserver(resize).observe(stage);
 else window.addEventListener('resize', resize);
 window.addEventListener('scroll', kick, { passive: true });

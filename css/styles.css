@@ -138,6 +138,8 @@ ol, ul { padding: 0; list-style: none; }
 .tour .cap {
   position: absolute; left: var(--gutter); right: var(--gutter);
   bottom: max(clamp(64px, 11vh, 120px), calc(env(safe-area-inset-bottom) + 64px));
+  /* the stage is as tall as the screen with Safari's bars hidden; keep the words above the bars when they show */
+  bottom: calc(100lvh - 100svh + max(clamp(56px, 9svh, 120px), calc(env(safe-area-inset-bottom) + 56px)));
   max-width: 560px;
   opacity: var(--o, 0);
   transform: translate3d(0, calc((1 - var(--o, 0)) * 34px), 0);
@@ -202,6 +204,7 @@ ol, ul { padding: 0; list-style: none; }
 @media (max-width: 760px) { .tour .rail { display: none; } }
 .tour .stage__skip {
   display: block; position: absolute; right: var(--gutter); bottom: max(22px, env(safe-area-inset-bottom));
+  bottom: calc(100lvh - 100svh + max(18px, env(safe-area-inset-bottom)));
   font-size: .85rem; font-weight: 600; color: rgb(255 255 255 / .75); text-decoration: none;
   opacity: var(--rail, 1);
 }

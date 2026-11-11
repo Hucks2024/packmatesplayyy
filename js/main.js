@@ -5,7 +5,7 @@
   const root = document.documentElement;
 
   if (root.classList.contains('tour')) {
-    import('./tour.js?v=1').catch((err) => {
+    import('./tour.js?v=2').catch((err) => {
       root.classList.remove('tour', 'tour-ready');
       if (window.console) console.warn('Packmates: the 3D tour is off.', err);
     });
