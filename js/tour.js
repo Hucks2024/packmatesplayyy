@@ -721,32 +721,45 @@ const CITIES = [
   [35.68, 139.69], [34.69, 135.5], [25.03, 121.57], [43.24, 76.89], [41.3, 69.24],
   [-33.87, 151.21], [-37.81, 144.96], [-27.47, 153.03], [-31.95, 115.86], [-36.85, 174.76], [-41.29, 174.78], [21.31, -157.86],
 ];
+// One pin per city, then more on open land, none closer than a few degrees to another, so they
+// are spread over the whole map instead of piled up on Europe.
 const pinSpots = [];
+const GAP = 8.5;
+const roomFor = (p) => pinSpots.every((s) => Math.hypot(s.p.x - p.x, s.p.z - p.z) > GAP);
 CITIES.forEach(([lat, lon], i) => {
-  pinSpots.push({ p: toMap(lat, lon), s: i === 0 ? 1.7 : rr(0.95, 1.3) });
-  for (let k = 0; k < 3; k++) {
-    const la = lat + rr(-5, 5), lo = lon + rr(-7, 7);
-    if (isLand(la, lo)) pinSpots.push({ p: toMap(la, lo), s: rr(0.5, 0.85) });
-  }
+  const p = toMap(lat, lon);
+  if (i === 0 || roomFor(p)) pinSpots.push({ p, s: i === 0 ? 1.35 : rr(0.9, 1.1), home: i === 0 });
 });
+for (let tries = 0; tries < 4000 && pinSpots.length < 150; tries++) {
+  const lat = rr(-50, 68), lon = rr(-170, 178);
+  if (!isLand(lat, lon) || !isLand(lat + 1.5, lon) || !isLand(lat, lon + 1.5)) continue;
+  const p = toMap(lat, lon);
+  if (roomFor(p)) pinSpots.push({ p, s: rr(0.75, 1) });
+}
 pinSpots.forEach((s) => { s.far = Math.hypot(s.p.x, s.p.z); s.phase = rr(0, 6.28); });
-const mapPins = new THREE.InstancedMesh(pinGeo(12), new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }), pinSpots.length);
-mapPins.frustumCulled = false;
-world.add(mapPins);
-const glowTex = canvasTex(64, 64, (g) => {
-  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grad.addColorStop(0, 'rgba(255,190,240,.9)'); grad.addColorStop(0.35, 'rgba(236,72,153,.35)'); grad.addColorStop(1, 'rgba(236,72,153,0)');
-  g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
+// a phone shows the map much smaller, so it gets a thinner set: pins at least twice as far apart
+{
+  const kept = [];
+  for (const s of pinSpots) {
+    s.phone = kept.every((k) => Math.hypot(k.p.x - s.p.x, k.p.z - s.p.z) > GAP * 1.9);
+    if (s.phone) kept.push(s);
+  }
+}
+pinSpots.sort((a, b) => a.p.z - b.p.z);            // far ones first, so nearer pins are drawn over them
+// The pin itself is the app's own: a flat picture that always faces the camera, standing on its point.
+const pinTex = canvasTex(192, 256, (g, w, h) => {
+  g.shadowColor = 'rgba(20,6,50,.55)'; g.shadowBlur = 10; g.shadowOffsetY = 3;
+  drawPin(g, w / 2, h - 14, h - 28);
 });
-const glows = (() => {
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pinSpots.flatMap((s) => [s.p.x, 0.05, s.p.z]), 3));
-  const m = new THREE.PointsMaterial({ map: glowTex, size: 9, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 });
-  const p = new THREE.Points(g, m);
-  p.frustumCulled = false;
-  world.add(p);
-  return p;
-})();
+const mapPins = new THREE.InstancedMesh(
+  new THREE.PlaneGeometry(0.75, 1).translate(0, 0.5 - 14 / 256, 0),
+  new THREE.MeshBasicMaterial({ map: pinTex, transparent: true, depthWrite: false, toneMapped: false, fog: false }),
+  pinSpots.length,
+);
+mapPins.frustumCulled = false;
+mapPins.renderOrder = 3;
+world.add(mapPins);
+
 const pulse = mesh(new THREE.RingGeometry(0.86, 1, 48), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false }), world, [0, 0.06, 0], 1, [-Math.PI / 2, 0, 0]);
 pulse.castShadow = false;
 const dummy = new THREE.Object3D();
@@ -761,20 +774,24 @@ function brandFill(g, x0, y0, x1, y1) {
   return f;
 }
 function drawPin(g, x, y, s) {            // x, y is the point of the pin; s its height
-  const r = s * 0.37, cy = y - s + r;
+  const w = s * 0.35;
   g.beginPath();
   g.moveTo(x, y);
-  const a = 0.63;
-  g.lineTo(x - Math.cos(a) * r, cy + Math.sin(a) * r);
-  g.arc(x, cy, r, Math.PI - a, a, false);
+  g.bezierCurveTo(x - s * 0.2, y - s * 0.23, x - w, y - s * 0.44, x - w, y - s * 0.655);
+  g.bezierCurveTo(x - w, y - s * 0.9, x - s * 0.2, y - s, x, y - s);
+  g.bezierCurveTo(x + s * 0.2, y - s, x + w, y - s * 0.9, x + w, y - s * 0.655);
+  g.bezierCurveTo(x + w, y - s * 0.44, x + s * 0.2, y - s * 0.23, x, y);
   g.closePath();
-  g.fillStyle = brandFill(g, x, y - s, x, y);
+  const fill = g.createLinearGradient(x, y - s, x, y);
+  fill.addColorStop(0, '#8b5cf6'); fill.addColorStop(0.55, '#c026d3'); fill.addColorStop(1, '#ec4899');
+  g.fillStyle = fill;
   g.fill();
+  g.shadowColor = 'transparent';
   g.fillStyle = '#fff';
-  for (const [dx, k] of [[-0.42, 0.72], [0.42, 0.72], [0, 1]]) {
-    const px = x + dx * r, u = r * 0.2 * k;
-    g.beginPath(); g.arc(px, cy - u * 0.9, u * 0.72, 0, 7); g.fill();
-    rrect(g, px - u, cy + u * 0.05, u * 2, u * 2.1, u * 0.9); g.fill();
+  for (const [dx, k, up] of [[-0.2, 0.78, 0], [0.2, 0.78, 0], [0, 1, 0.012]]) {
+    const px = x + dx * s, head = s * 0.058 * k, body = s * 0.082 * k, base = y - s * (0.395 + up);
+    g.beginPath(); g.arc(px, base - body * 2.25 - head * 1.25, head, 0, 7); g.fill();
+    rrect(g, px - body, base - body * 2.25, body * 2, body * 2.25, [body, body, body * 0.45, body * 0.45]); g.fill();
   }
 }
 const FACES = [['#d9a273', '#7c3aed'], ['#f2c9a5', '#ec4899'], ['#a9714b', '#fbbf24'], ['#f6d7bd', '#38bdf8'], ['#7a4b2f', '#34d399']];
@@ -1182,24 +1199,23 @@ function frame() {
     const out = smooth(0.83, 0.955, p);
     const reachNow = lerp(0, MAP.far, out);
     dots.material.uniforms.reach.value = reachNow + 26 * mapIn;
-    const size = Math.max(0.05, camera.position.length() * 0.0072);
+    // each pin is drawn about the same size on screen, whatever the device, and always faces the camera
+    const perPixel = (2 * camera.position.distanceTo(camLook) * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / H;
+    const narrow = aspect < 0.9;
+    const size = (narrow ? 33 : clamp(H * 0.046, 30, 46)) * perPixel;
+    dummy.quaternion.copy(camera.quaternion);
     pinSpots.forEach((spot, i) => {
-      const pop = i === 0 ? smooth(0.85, 0.885, p) : clamp((reachNow - spot.far) / 22);
+      const pop = narrow && !spot.phone ? 0 : spot.home ? smooth(0.85, 0.885, p) : clamp((reachNow - spot.far) / 22);
       const k = pop <= 0 ? 0 : backOut(pop) * size * spot.s;
       dummy.position.copy(spot.p);
-      dummy.position.y = pop > 0 ? Math.sin(t * 1.7 + spot.phase) * size * 0.12 + size * 0.12 : 0;
+      dummy.position.y = pop > 0 ? (0.5 + 0.5 * Math.sin(t * 1.7 + spot.phase)) * size * 0.1 : 0;
       dummy.scale.setScalar(Math.max(k, 0.0001));
-      dummy.rotation.y = t * 0.5 + spot.phase;
       dummy.updateMatrix();
       mapPins.setMatrixAt(i, dummy.matrix);
     });
     mapPins.instanceMatrix.needsUpdate = true;
-    mapPins.count = pinSpots.length;
-    glows.material.size = size * 8;
-    glows.material.opacity = out * 0.75;
-    glows.geometry.setDrawRange(0, Math.max(1, pinSpots.filter((sp) => sp.far < reachNow).length));
     const ring = (t * 0.5) % 1;
-    pulse.scale.setScalar(size * (1 + ring * 7));
+    pulse.scale.setScalar(size * 0.45 * (1 + ring * 5));
     pulse.material.opacity = smooth(0.87, 0.9, p) * (1 - ring) * 0.8;
   }
 
@@ -1220,14 +1236,6 @@ function frame() {
 function kick() {
   readScroll();
   if (!raf && visible && !document.hidden) { clock.update(); raf = requestAnimationFrame(frame); }
-}
-
-// pins sorted by distance, so the glow can be drawn for just the ones that have landed
-{
-  const order = pinSpots.map((s, i) => i).sort((a, b) => pinSpots[a].far - pinSpots[b].far);
-  const sorted = order.map((i) => pinSpots[i]);
-  pinSpots.splice(0, pinSpots.length, ...sorted);
-  glows.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pinSpots.flatMap((s) => [s.p.x, 0.05, s.p.z]), 3));
 }
 
 resize();
