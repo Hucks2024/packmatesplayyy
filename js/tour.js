@@ -267,19 +267,19 @@ function person(o = {}) {
   return P;
 }
 // Poses. A positive turn of a leg or arm swings it back, a negative one forward.
-function poseRun(P, t, speed = 9.5) {
+function poseRun(P, t, speed = 9.5, amount = 1) {
   const ph = t * speed + P.phase;
   for (const [limb, off] of [[P.L, 0], [P.R, Math.PI]]) {
     const s = Math.sin(ph + off);
-    limb.leg.rotation.x = -s * 0.85 - 0.12;
-    limb.knee.rotation.x = 0.25 + 1.05 * (0.5 + 0.5 * Math.sin(ph + off - 1.35));
-    limb.arm.rotation.x = s * 0.9;
-    limb.elbow.rotation.x = -1.45;
+    limb.leg.rotation.x = (-s * 0.85 - 0.12) * amount;
+    limb.knee.rotation.x = (0.25 + 1.05 * (0.5 + 0.5 * Math.sin(ph + off - 1.35))) * amount;
+    limb.arm.rotation.set(s * 0.9 * amount, 0, 0);
+    limb.elbow.rotation.x = lerp(-0.25, -1.45, amount);
   }
-  P.hips.position.y = 0.9 + Math.abs(Math.sin(ph)) * 0.07;
-  P.hips.rotation.x = 0.2;
-  P.hips.rotation.y = Math.sin(ph) * 0.12;
-  P.head.rotation.x = -0.12;
+  P.hips.position.y = lerp(0.92 + Math.sin(t * 1.5 + P.phase) * 0.006, 0.9 + Math.abs(Math.sin(ph)) * 0.07, amount);
+  P.hips.rotation.x = 0.2 * amount;
+  P.hips.rotation.y = Math.sin(ph) * 0.12 * amount;
+  P.head.rotation.set(-0.12 * amount, 0, 0);
 }
 function poseWalk(P, t, speed = 5.2) {
   const ph = t * speed + P.phase;
@@ -351,7 +351,19 @@ function beacon(i, emoji, height = 6.2) {
 }
 
 /* ---------- Place 0: evening, the host and the phone ---------- */
-const host = person({ top: 0x7c3aed, bottom: 0x1f2340, skin: 0xd9a273, hair: 0x2a1d18, style: 1, shoes: 0xffffff, h: 1 });
+const HOST_LOOK = { top: 0x7c3aed, bottom: 0x1f2340, skin: 0xd9a273, hair: 0x2a1d18, style: 1, shoes: 0xffffff };
+const GUEST_LOOK = { top: 0xf97316, bottom: 0x3b3350, skin: 0xf2c9a5, hair: 0x8a5a2c, style: 2, shoes: 0x22d3ee };
+// A clock face for the scenes: the time is told in the background, on a wall or a post.
+function drawClock(g, w, h, day, time) {
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = '#17112e'; g.beginPath(); g.roundRect(0, 0, w, h, 36); g.fill();
+  g.textBaseline = 'middle';
+  g.fillStyle = '#b9a8ff'; g.font = '700 40px "Open Sans",system-ui,sans-serif'; g.textAlign = 'left';
+  g.fillText(day, 30, 46);
+  g.fillStyle = '#ffe3f6'; g.font = '800 142px "Open Sans",system-ui,sans-serif'; g.textAlign = 'center';
+  g.fillText(time, w / 2 + 20, h / 2 + 22);
+}
+const host = person({ ...HOST_LOOK, h: 1 });
 let phone, phoneTex, phoneCtx, phoneLight, lampLight;
 const floods = [];
 const PHONE = { pos: new V3(), n: new V3() };
@@ -432,6 +444,8 @@ const PHONE = { pos: new V3(), n: new V3() };
   phone.getWorldDirection(PHONE.n);
   phoneLight.position.copy(PHONE.pos).addScaledVector(PHONE.n, 0.14);
   town.add(phoneLight);
+  PHONE.light = phoneLight.position.clone();
+  PHONE.lamp = lampLight.position.clone();
 }
 
 /* ---------- Place 1: sunrise, the run ---------- */
@@ -451,12 +465,27 @@ const runners = [];
   const spots = [[0, 0], [0.8, 1.3], [-0.75, 1.5], [0.15, 2.9], [-0.9, 3.9]];
   const tops = [0x7c3aed, 0xec4899, 0xfbbf24, 0x38bdf8, 0x34d399];
   spots.forEach(([dx, dz], i) => {
-    const P = person({ top: tops[i], shorts: true, sleeves: i % 2 === 0, skin: SKINS[i % SKINS.length], style: i % 3 });
+    const P = i === 0 ? person({ ...HOST_LOOK, h: 1 })           // the two we have been following,
+      : i === 1 ? person({ ...GUEST_LOOK, h: 0.97 })            // and three more who tapped "I'm in"
+        : person({ top: tops[i], shorts: true, sleeves: i % 2 === 0, skin: SKINS[i % SKINS.length], style: i % 3 });
+    P.slot = v(RUN_R + dx, 0, dz);
+    P.face = Math.PI - dz / RUN_R;
     P.g.position.set(RUN_R + dx, 0, dz);
     P.g.rotation.y = Math.PI - dz / RUN_R;      // facing along the track
     runPivot.add(P.g);
     runners.push(P);
   });
+  // the park clock: it is 8:00
+  const post = new THREE.Group();
+  post.position.set(RUN_R + 2.3, 0, 4.7);
+  mesh(G.cyl, mat(0x2b2540, 0.5), post, [0, 1.5, 0], [0.07, 3, 0.07]);
+  mesh(G.box, mat(0x2b2540, 0.5), post, [0, 3.2, 0], [1.5, 0.72, 0.16]);
+  const face = canvasTex(512, 240, (g, w, h) => drawClock(g, w, h, 'SAT', '08:00'));
+  for (const side of [1, -1]) {
+    const m = mesh(new THREE.PlaneGeometry(1.38, 0.62), new THREE.MeshBasicMaterial({ map: face, toneMapped: false }), post, [0, 3.2, side * 0.085], 1, [0, side > 0 ? 0 : Math.PI, 0]);
+    m.castShadow = false;
+  }
+  p.add(post);
   beacon(1, '🏃');
 }
 
@@ -622,6 +651,141 @@ let ball;
   beacon(4, '⚽', 7);
 }
 
+/* ---------- The bedroom: across town, someone who would like to meet people too ---------- */
+const bedroom = new THREE.Group();
+bedroom.position.set(-62, 0, -70);
+town.add(bedroom);
+const inRoom = (x, y, z) => v(bedroom.position.x + x, y, bedroom.position.z + z);
+const guest = person({ ...GUEST_LOOK, h: 0.97 });
+const BED = { x: -0.6, z: -1.2, top: 0.61 };
+let card, cardAsk, cardDone, wallClock, wallClockCtx, wallClockTex, windowPane, bedPhone, duvet;
+{
+  const b = bedroom;
+  const wall = mat(0x6a62a8, 1);
+  mesh(G.box, mat(0x8a7a9c, 1), b, [0, -0.05, 0], [6.4, 0.14, 4.8]);
+  mesh(G.box, wall, b, [0, 1.4, -2.3], [6.4, 2.8, 0.2]);
+  mesh(G.box, wall, b, [-3.1, 1.4, 0], [0.2, 2.8, 4.8]);
+  mesh(G.box, wall, b, [3.1, 1.4, 0], [0.2, 2.8, 4.8]);
+  mesh(G.box, mat(0x4d4680, 1), b, [0, 2.9, 0], [6.6, 0.2, 5]);
+  mesh(G.cyl, mat(0xc4b5fd, 1), b, [0.5, 0.035, 0.7], [1.5, 0.03, 1.1]);
+  // the bed
+  mesh(G.box, mat(0x5a3d2b), b, [BED.x, 0.22, BED.z], [2.3, 0.3, 1.16]);
+  mesh(G.box, mat(0xf3eefc), b, [BED.x, 0.49, BED.z], [2.2, 0.24, 1.08]);
+  mesh(G.box, mat(0x5a3d2b), b, [BED.x - 1.17, 0.7, BED.z], [0.08, 1.1, 1.16]);
+  mesh(G.box, mat(0xffffff), b, [BED.x - 0.8, 0.67, BED.z], [0.5, 0.12, 0.8]);
+  duvet = mesh(capsule(0.3, 0.9), mat(0x7c6ad6, 1), b, [BED.x + 0.42, BED.top + 0.14, BED.z], [1, 1, 1.55], [0, 0, Math.PI / 2]);
+  // a bedside table and lamp, a plant, last night's clothes
+  mesh(G.box, mat(0x8a5a3c), b, [-2.4, 0.3, -1.7], [0.6, 0.6, 0.6]);
+  mesh(G.cyl, mat(0x2b2540, 0.5), b, [-2.4, 0.75, -1.7], [0.03, 0.3, 0.03]);
+  mesh(G.cone, mat(0xd9cdf5), b, [-2.4, 0.98, -1.7], [0.2, 0.26, 0.2]);
+  mesh(G.cyl, mat(0xc26a4a), b, [2.5, 0.25, 1.3], [0.26, 0.5, 0.26]);
+  mesh(G.blob, mat(0x3f8f5a, 0.9, { flatShading: true }), b, [2.5, 0.9, 1.3], 0.5);
+  mesh(G.blob, mat(0x38bdf8, 1, { flatShading: true }), b, [1.6, 0.1, -0.2], [0.4, 0.12, 0.3]);
+  mesh(G.blob, mat(0xec4899, 1, { flatShading: true }), b, [1.2, 0.08, 0.1], [0.3, 0.1, 0.34]);
+  // the window: night outside, then morning
+  windowPane = mesh(new THREE.PlaneGeometry(1.5, 1.3), new THREE.MeshBasicMaterial({ color: 0x1b1a4a, fog: false }), b, [1.75, 1.6, -2.19]);
+  windowPane.castShadow = false;
+  const frame = mat(0xf3eefc);
+  mesh(G.box, frame, b, [1.75, 2.28, -2.17], [1.66, 0.08, 0.08]);
+  mesh(G.box, frame, b, [1.75, 0.92, -2.15], [1.8, 0.08, 0.16]);
+  mesh(G.box, frame, b, [0.96, 1.6, -2.17], [0.08, 1.44, 0.08]);
+  mesh(G.box, frame, b, [2.54, 1.6, -2.17], [0.08, 1.44, 0.08]);
+  mesh(G.box, frame, b, [1.75, 1.6, -2.18], [0.05, 1.3, 0.04]);
+  mesh(G.box, mat(0x7c3aed, 1), b, [0.72, 1.55, -2.12], [0.34, 1.7, 0.1]);
+  mesh(G.box, mat(0x7c3aed, 1), b, [2.78, 1.55, -2.12], [0.34, 1.7, 0.1]);
+  // the clock on the wall
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 240;
+  wallClockCtx = c.getContext('2d');
+  drawClock(wallClockCtx, 512, 240, 'FRI', '21:14');
+  wallClockTex = new THREE.CanvasTexture(c);
+  wallClockTex.colorSpace = THREE.SRGBColorSpace;
+  wallClockTex.generateMipmaps = false;
+  wallClockTex.minFilter = THREE.LinearFilter;
+  wallClock = mesh(new THREE.PlaneGeometry(1.5, 0.7), new THREE.MeshBasicMaterial({ map: wallClockTex, toneMapped: false, fog: false, transparent: true }), b, [BED.x - 0.1, 2.0, -2.19]);
+  wallClock.castShadow = false;
+  // the guest, with a worried brow
+  b.add(guest.g);
+  const brow = mat(0x3a2414, 0.9);
+  guest.brows = [1, -1].map((side) => mesh(G.box, brow, guest.head, [side * 0.055, 0.2, 0.146], [0.055, 0.012, 0.012], [0, 0, -side * 0.5]));
+  guest.brows.forEach((m) => { m.castShadow = false; });
+  bedPhone = mesh(new THREE.BoxGeometry(0.075, 0.15, 0.012), new THREE.MeshBasicMaterial({ color: 0xd8ccff }), guest.L.elbow, [0, -0.33, 0.06], 1, [0.5, 0, 0]);
+  bedPhone.castShadow = false;
+  // what is on their phone, held up large so it can be read: a meetup nearby, then "You're in"
+  const cardTex = (done) => canvasTex(640, 380, (g, w, h) => {
+    g.fillStyle = '#fff'; g.beginPath(); g.roundRect(8, 8, w - 16, h - 16, 44); g.fill();
+    drawPin(g, 96, 178, 130);
+    g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+    g.fillStyle = '#64748b'; g.font = '700 26px "Open Sans",system-ui,sans-serif'; g.fillText('NEW MEETUP NEAR YOU', 176, 78);
+    g.fillStyle = '#0f172a'; g.font = '800 48px "Open Sans",system-ui,sans-serif'; g.fillText('Morning run', 176, 132);
+    g.fillStyle = '#64748b'; g.font = '600 28px "Open Sans",system-ui,sans-serif'; g.fillText('Sat 8:00 · Riverside Park', 176, 176);
+    const fill = g.createLinearGradient(40, 0, w - 40, 0);
+    if (done) { fill.addColorStop(0, '#16a34a'); fill.addColorStop(1, '#22c55e'); } else { fill.addColorStop(0, '#7c3aed'); fill.addColorStop(0.55, '#c026d3'); fill.addColorStop(1, '#ec4899'); }
+    g.fillStyle = fill; g.beginPath(); g.roundRect(40, 232, w - 80, 100, 50); g.fill();
+    g.fillStyle = '#fff'; g.font = '800 44px "Open Sans",system-ui,sans-serif'; g.textAlign = 'center';
+    g.fillText(done ? "You're in ✓" : "I'm in", w / 2, 298);
+  });
+  cardAsk = cardTex(false);
+  cardDone = cardTex(true);
+  card = new THREE.Sprite(new THREE.SpriteMaterial({ map: cardAsk, depthTest: false, fog: false, toneMapped: false }));
+  card.position.set(BED.x - 0.1, 1.6, BED.z + 0.5);
+  card.renderOrder = 4;
+  b.add(card);
+}
+// The guest through the night: lying on their side with the phone, asleep, then up and out.
+const hip = v(), hipLie = v(BED.x + 0.02, BED.top + 0.25, BED.z), hipSit = v(BED.x + 0.3, BED.top + 0.08, BED.z + 0.48), hipStand = v(0.85, 0.92, -0.5);
+let clockText = '', clockDrawn = -1;
+function playBedroom(q, t) {
+  const P = guest;
+  const awake = 1 - smooth(0.428, 0.44, q);                    // phone down, eyes shut
+  const up = smooth(0.462, 0.474, q), stand = smooth(0.475, 0.489, q);
+  const tilt = (Math.PI / 2) * (1 - up), h = 0.92 * P.s;
+  hip.lerpVectors(hipLie, hipSit, up).lerp(hipStand, stand);
+  if (stand <= 0) hip.y += Math.sin(t * 1.4) * 0.006;
+  P.g.rotation.set(0, 0, tilt);
+  P.g.position.set(hip.x + h * Math.sin(tilt), hip.y - h * Math.cos(tilt), hip.z);
+  P.hips.position.y = 0.92;
+  P.hips.rotation.set(0, 0, 0);
+  const sit = up * (1 - stand), lie = 1 - up, stretch = Math.sin(stand * Math.PI);
+  for (const limb of [P.L, P.R]) { limb.leg.rotation.x = -0.35 * lie - 1.45 * sit; limb.knee.rotation.x = 0.7 * lie + 1.4 * sit; }
+  P.L.arm.rotation.set((-1.25 * awake - 0.5 * (1 - awake)) * lie - 0.2 * sit, 0, 2.5 * stretch);
+  P.L.elbow.rotation.x = (-1.35 * awake - 0.6 * (1 - awake)) * lie - 0.3 * sit;
+  P.R.arm.rotation.set(-0.6 * lie - 0.2 * sit, 0, -2.5 * stretch);
+  P.R.elbow.rotation.x = -1.5 * lie - 0.3 * sit;
+  P.head.rotation.set(0.3 * lie * awake - 0.25 * stretch, 0, 0);
+  const glad = smooth(0.418, 0.426, q);                         // the brow lifts once they are in
+  P.brows.forEach((m, i) => { m.rotation.z = (i ? 0.5 : -0.5) * (1 - glad); });
+  bedPhone.visible = awake > 0.05 && up < 0.5;
+  // the card: pops up, is tapped, goes away
+  const show = backOut(smooth(0.385, 0.4, q)) * (1 - smooth(0.432, 0.445, q));
+  card.visible = show > 0.01;
+  const tapped = q > 0.418;
+  if (card.material.map !== (tapped ? cardDone : cardAsk)) card.material.map = tapped ? cardDone : cardAsk;
+  const press = 1 - 0.07 * smooth(0.412, 0.418, q) * (1 - smooth(0.418, 0.426, q));
+  const fit = (aspect < 0.9 ? 0.66 : 1) * show * press;      // narrower on a phone, so the whole card is in view
+  card.scale.set(1.5 * fit, 0.89 * fit, 1);
+  card.position.y = aspect < 0.9 ? 1.5 : 1.6;
+  // the night goes by on the wall clock and in the window
+  const night = smooth(0.44, 0.488, q);
+  const mins = 21 * 60 + 14 + Math.round(616 * night);
+  const text = `${String(Math.floor(mins / 60) % 24).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+  if (text !== clockText && t - clockDrawn > 0.03) {
+    clockText = text; clockDrawn = t;
+    drawClock(wallClockCtx, 512, 240, mins >= 24 * 60 ? 'SAT' : 'FRI', text);
+    wallClockTex.needsUpdate = true;
+  }
+  const dawn = smooth(0.455, 0.49, q);
+  windowPane.material.color.setRGB(lerp(0.012, 1, dawn), lerp(0.012, 0.6, dawn), lerp(0.07, 0.36, dawn));
+  // the two lights of the host's park do duty here: the glow of the phone, and the window
+  phoneLight.position.copy(inRoom(BED.x - 0.75, 1.0, BED.z + 0.45));
+  phoneLight.color.setHex(0xc9b8ff);
+  phoneLight.distance = 4;
+  phoneLight.intensity = 1.6 * awake * (1 - up);
+  lampLight.position.copy(inRoom(1.75, 1.7, -1.5));
+  lampLight.color.setRGB(lerp(0.4, 1, dawn), lerp(0.42, 0.62, dawn), lerp(0.9, 0.3, dawn));
+  lampLight.intensity = lerp(4, 34, dawn);
+}
+
 /* ---------- One mesh per place for everything that never moves ----------
    Trees, benches, the café and so on are hundreds of small parts. Drawn one by one they are what slows
    a phone down, so each place's still parts are joined into a single mesh, coloured per corner. */
@@ -659,7 +823,7 @@ function bake(place, moving) {
 }
 {
   const moving = [...people.map((P) => P.g), dog, phone, ball, ...beacons.map((b) => b.g)];
-  for (const place of places) bake(place, moving);
+  for (const place of [...places, bedroom]) bake(place, moving);
 }
 
 /* ---------- The world map ---------- */
@@ -920,7 +1084,8 @@ function drawPhone(s, t) {
 /* ---------- The camera's path ----------
    Each key is where the camera is and what it looks at when the scroll reaches p. A key with a "frame"
    is given in that object's own space, so the camera can ride along with the runners and the walkers.
-   A new list is a cut: the jump through the phone happens behind the wash of colour. */
+   A new list is a cut: the jump through the phone, and the one out of the bedroom window, happen behind a wash of colour.
+   Times here are story time (see QMAX below), not the 0..1 of the scroll. */
 const pc = (d, side = 0, up = 0) => PHONE.pos.clone().addScaledVector(PHONE.n, d).add(v(side, up, 0));
 const mapEnd = { pos: v(0, 200, 150), look: v(8, 0, 36) };
 const mapEnd2 = { pos: v(0, 220, 160), look: v(8, 0, 36) };
@@ -934,24 +1099,38 @@ const SHOTS = [
     { p: 0.27, pos: pc(0.31), look: PHONE.pos.clone() },
     { p: 0.33, pos: pc(0.1), look: PHONE.pos.clone() },
   ],
+  // through the phone, into the bedroom
   [
-    { p: 0.33, frame: runPivot, pos: v(RUN_R + 0.6, 0.8, -9), look: v(RUN_R, 1.15, 0) },
-    { p: 0.385, frame: runPivot, pos: v(RUN_R + 1.6, 1.05, -6.4), look: v(RUN_R - 0.1, 1.1, 1.2) },
-    { p: 0.43, frame: runPivot, pos: v(RUN_R + 4.6, 1.5, -2.6), look: v(RUN_R - 0.2, 1.0, 1.6) },
-    { p: 0.475, frame: runPivot, pos: v(RUN_R + 5.2, 2.4, 5.5), look: v(RUN_R - 0.2, 1.0, 1.2) },
-    { p: 0.50, pos: v(-12, 8.5, 20), look: at(2, 0, 2.2, 0) },
-    { p: 0.535, pos: at(2, 3.4, 2.1, 5.4), look: at(2, 0, 1.0, 0) },
-    { p: 0.585, pos: at(2, -3.3, 1.75, 4.4), look: at(2, 0, 1.0, 0) },
-    { p: 0.61, pos: v(16, 8, 14), look: at(3, 0, 2, 0) },
-    { p: 0.645, frame: walkPivot, pos: v(WALK_R + 1.9, 1.25, -6.2), look: v(WALK_R, 1.05, 0.8) },
-    { p: 0.69, frame: walkPivot, pos: v(WALK_R + 4.6, 1.7, -0.6), look: v(WALK_R - 0.2, 1.0, 1.4) },
-    { p: 0.715, pos: v(46, 8.5, 14), look: at(4, 0, 2, 0) },
-    { p: 0.745, pos: at(4, 5.2, 2.0, 6.6), look: at(4, 0, 1.0, 0) },
-    { p: 0.79, pos: at(4, -4.8, 3.0, 6.4), look: at(4, 0, 1.0, 0) },
-    { p: 0.825, pos: v(34, 60, 62), look: v(22, 0, 0) },
-    { p: 0.87, pos: v(4, 120, 96), look: v(4, 0, 22) },
-    { p: 0.93, ...mapEnd },
-    { p: 1.00, ...mapEnd2 },
+    { p: 0.33, pos: inRoom(0.4, 1.8, 5.2), look: inRoom(-0.5, 1.15, -1.2) },
+    { p: 0.372, pos: inRoom(-0.1, 1.5, 3.0), look: inRoom(-0.7, 1.15, -1.2) },
+    { p: 0.405, pos: inRoom(-0.9, 1.4, 1.5), look: inRoom(-0.75, 1.3, -1.2) },
+    { p: 0.435, pos: inRoom(-0.9, 1.4, 1.5), look: inRoom(-0.7, 1.3, -1.2) },
+    { p: 0.465, pos: inRoom(0.5, 1.55, 3.5), look: inRoom(0.2, 1.45, -2.2) },
+    { p: 0.486, pos: inRoom(0.9, 1.55, 3.0), look: inRoom(0.9, 1.45, -2.2) },
+    { p: 0.50, pos: inRoom(1.5, 1.6, 0.8), look: inRoom(1.75, 1.6, -2.2) },
+  ],
+  // out of the window, into the morning: the two meet, then everyone runs
+  [
+    { p: 0.50, frame: runPivot, pos: v(RUN_R + 5.2, 2.0, -4.6), look: v(RUN_R + 1.6, 1.25, 0.6) },
+    { p: 0.55, frame: runPivot, pos: v(RUN_R + 3.6, 1.55, -4.2), look: v(RUN_R + 0.7, 1.3, 0.4) },
+    { p: 0.60, frame: runPivot, pos: v(RUN_R + 0.5, 1.5, -3.4), look: v(RUN_R + 0.5, 1.45, 0.4) },
+    { p: 0.685, frame: runPivot, pos: v(RUN_R + 1.6, 1.05, -6.4), look: v(RUN_R - 0.1, 1.1, 1.2) },
+    { p: 0.730, frame: runPivot, pos: v(RUN_R + 4.6, 1.5, -2.6), look: v(RUN_R - 0.2, 1.0, 1.6) },
+    { p: 0.775, frame: runPivot, pos: v(RUN_R + 5.2, 2.4, 5.5), look: v(RUN_R - 0.2, 1.0, 1.2) },
+    { p: 0.800, pos: v(-12, 8.5, 20), look: at(2, 0, 2.2, 0) },
+    { p: 0.835, pos: at(2, 3.4, 2.1, 5.4), look: at(2, 0, 1.0, 0) },
+    { p: 0.885, pos: at(2, -3.3, 1.75, 4.4), look: at(2, 0, 1.0, 0) },
+    { p: 0.910, pos: v(16, 8, 14), look: at(3, 0, 2, 0) },
+    { p: 0.945, frame: walkPivot, pos: v(WALK_R + 1.9, 1.25, -6.2), look: v(WALK_R, 1.05, 0.8) },
+    { p: 0.990, frame: walkPivot, pos: v(WALK_R + 4.6, 1.7, -0.6), look: v(WALK_R - 0.2, 1.0, 1.4) },
+    { p: 1.002, frame: walkPivot, pos: v(WALK_R + 5.4, 6.8, -0.4), look: v(WALK_R - 0.2, 1.0, 1.4) },      // up over the pines before leaving
+    { p: 1.015, pos: v(46, 8.5, 14), look: at(4, 0, 2, 0) },
+    { p: 1.045, pos: at(4, 5.2, 2.0, 6.6), look: at(4, 0, 1.0, 0) },
+    { p: 1.090, pos: at(4, -4.8, 3.0, 6.4), look: at(4, 0, 1.0, 0) },
+    { p: 1.125, pos: v(34, 60, 62), look: v(22, 0, 0) },
+    { p: 1.170, pos: v(4, 120, 96), look: v(4, 0, 22) },
+    { p: 1.230, ...mapEnd },
+    { p: 1.300, ...mapEnd2 },
   ],
 ];
 const A = { pos: [v(), v(), v(), v()], look: [v(), v(), v(), v()] };
@@ -976,7 +1155,7 @@ function hermite(p1, m1, p2, m2, t, out) {
 }
 const camPos = v(), camLook = v();
 function cameraAt(p) {
-  const shot = p < SHOTS[1][0].p ? SHOTS[0] : SHOTS[1];
+  const shot = p < SHOTS[1][0].p ? SHOTS[0] : p < SHOTS[2][0].p ? SHOTS[1] : SHOTS[2];
   let i = 0;
   while (i < shot.length - 2 && p > shot[i + 1].p) i++;
   const k = [shot[Math.max(0, i - 1)], shot[i], shot[i + 1], shot[Math.min(shot.length - 1, i + 2)]];
@@ -994,12 +1173,9 @@ function cameraAt(p) {
 const caps = [...document.querySelectorAll('.cap')].map((el) => ({ el, from: +el.dataset.from, to: +el.dataset.to, on: null }));
 const rail = [...document.querySelectorAll('.rail li')].map((el) => ({ el, at: +el.dataset.at }));
 const wash = document.querySelector('.wash');
-const washDay = document.querySelector('.wash__day');
-const washTime = document.querySelector('.wash__time');
-const washClock = document.querySelector('.wash__clock');
-let washOn = false, pastStage = null;
+let washOn = false, washDawn = false, pastStage = null;
 const topbar = document.querySelector('.topbar');
-let lastTime = '', lastRail = -1;
+let lastRail = -1;
 // write a CSS variable only when its value changes, so a still frame costs the page nothing
 const written = new Map();
 function setVar(el, name, value) {
@@ -1009,7 +1185,7 @@ function setVar(el, name, value) {
   seen[name] = value;
   el.style.setProperty(name, value);
 }
-function setWords(p) {
+function setWords(p, legacyP) {
   for (const c of caps) {
     const o = smooth(c.from, c.from + 0.022, p) * (1 - smooth(c.to - 0.022, c.to, p));
     const on = o > 0.01;
@@ -1022,25 +1198,12 @@ function setWords(p) {
     lastRail = now;
     rail.forEach((r, i) => { r.el.classList.toggle('is-now', i === now); r.el.classList.toggle('is-done', i < now); });
   }
-  setVar(stage, '--rail', (1 - smooth(0.9, 0.94, p)).toFixed(2));
-  // the wash and its clock
-  const o = smooth(0.29, 0.312, p) * (1 - smooth(0.352, 0.385, p));
+  setVar(stage, '--rail', (1 - smooth(0.9, 0.94, legacyP)).toFixed(2));
+  // the two cuts: violet through the phone, warm through the window
+  const o = Math.max(smooth(0.295, 0.318, p) * (1 - smooth(0.338, 0.362, p)), smooth(0.487, 0.499, p) * (1 - smooth(0.505, 0.53, p)));
   setVar(wash, '--o', o.toFixed(2));
   if ((o > 0.005) !== washOn) { washOn = o > 0.005; wash.classList.toggle('is-on', washOn); }
-  if (o > 0.005) {
-    const c = smooth(0.3, 0.348, p);
-    const mins = 21 * 60 + 14 + Math.round(646 * c);
-    const hh = Math.floor(mins / 60) % 24, mm = mins % 60;
-    const text = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
-    if (text !== lastTime) {
-      lastTime = text;
-      washTime.textContent = text;
-      washDay.textContent = mins >= 24 * 60 ? 'Saturday' : 'Friday';
-    }
-    const done = smooth(0.94, 1, c);
-    setVar(washClock, '--n', done.toFixed(2));
-    setVar(washClock, '--s', (0.92 + 0.08 * c + done * 0.05).toFixed(3));
-  }
+  if ((p > 0.42) !== washDawn) { washDawn = p > 0.42; wash.classList.toggle('wash--dawn', washDawn); }
 }
 
 /* ---------- Size ---------- */
@@ -1069,12 +1232,19 @@ function resize() {
 
 /* ---------- Every frame ---------- */
 const clock = new THREE.Timer();
+/* Story time. The first version of the story ran from 0 to 1. The bedroom and the meeting were added in
+   the middle, between 0.33 and 0.63, so the story now runs from 0 to QMAX. "q" is that story time; the
+   parts written before (the day's moods, which places are drawn, the zoom out to the map) still read
+   the old 0..1 clock, which simply stands still while the new middle plays. */
+const QMAX = 1.3;
+const oldClock = (q) => (q < 0.33 ? q : q < 0.64 ? Math.min(0.34, q) : q - 0.3);
+let runAngle = 0;
 let target = 0, pNow = 0, raf = 0, visible = true, lastPhone = -1, started = false, slow = 0, phoneDrawn = -1;
 const look = v(), side = v();
 function readScroll() {
   const rect = story.getBoundingClientRect();
   const span = storyHeight - H;
-  target = span > 0 ? clamp(-rect.top / span) : 0;
+  target = span > 0 ? clamp(-rect.top / span) * QMAX : 0;
   visible = rect.bottom > 0 && rect.top < window.innerHeight;
   const past = rect.bottom <= barHeight + 6;
   if (past !== pastStage) { pastStage = past; root.classList.toggle('past-stage', past); }
@@ -1087,10 +1257,11 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.1), t = clock.getElapsed();
   pNow += (target - pNow) * (1 - Math.exp(-dt * 5.5));
   if (Math.abs(target - pNow) < 0.00005) pNow = target;
-  const p = pNow;
+  const q = pNow, p = oldClock(q);
 
-  setMood(p);
-  setWords(p);
+  // night in the park and the bedroom, turning to sunrise as the night goes by on the wall clock
+  setMood(q < 0.33 ? q : q < 0.63 ? lerp(0.32, 0.33, smooth(0.455, 0.495, q)) : p);
+  setWords(q, p);
 
   // the town shrinks to a point on the map as the camera leaves
   const shrink = smooth(0.835, 0.885, p);
@@ -1103,7 +1274,10 @@ function frame() {
 
   // only the places near the story are drawn and moved
   const near = (i, a, b) => { const on = !gone && ((p > a && p < b) || p > 0.8); places[i].visible = on; return on; };
-  if (near(0, -1, 0.36)) {
+  const middle = q > 0.322 && q < 0.64;        // the bedroom and the meeting: the host's park is out of sight
+  const hostOn = near(0, -1, 0.36) && (!middle || p > 0.8);
+  places[0].visible = hostOn;
+  if (hostOn) {
     host.hips.position.y = 0.92 + Math.sin(t * 1.6) * 0.004;
     host.head.rotation.x = 0.32 + Math.sin(t * 0.8) * 0.02;
     // the form is filled in while the first words are up, the map and the people joining while the second are
@@ -1112,11 +1286,62 @@ function frame() {
     if (due) { lastPhone = ps; phoneDrawn = t; drawPhone(ps, t); }
   }
   const lit = 1 - shrink;
-  lampLight.intensity = places[0].visible ? 26 * lit : 0;
-  phoneLight.intensity = places[0].visible ? (0.45 + Math.sin(t * 2) * 0.05) * lit : 0;
-  if (near(1, 0.3, 0.56)) {
-    runPivot.rotation.y = t * 0.5;
-    for (const P of runners) poseRun(P, t);
+  const inBed = q > 0.322 && q < 0.51;
+  bedroom.visible = inBed;
+  if (inBed) playBedroom(q, t);
+  else {
+    lampLight.position.copy(PHONE.lamp); lampLight.color.setHex(0xffc37a);
+    phoneLight.position.copy(PHONE.light); phoneLight.color.setHex(0xb9a0ff); phoneLight.distance = 2.2;
+    lampLight.intensity = places[0].visible ? 26 * lit : 0;
+    phoneLight.intensity = places[0].visible ? (0.45 + Math.sin(t * 2) * 0.05) * lit : 0;
+  }
+  const parkOn = near(1, 0.3, 0.56) && (!(q > 0.33 && q < 0.497) || p > 0.8);
+  places[1].visible = parkOn;
+  if (parkOn) {
+    // 8:00 in the park. The host and three others are waiting; the guest walks up; a wave, a high five; then they run.
+    const go = smooth(0.6, 0.64, q);
+    runAngle = go > 0 ? runAngle + dt * 0.5 * go : runAngle * Math.exp(-dt * 4);
+    runPivot.rotation.y = runAngle;
+    const m = clamp((q - 0.505) / 0.095), still = 1 - go;
+    const five = smooth(0.7, 0.8, m) * still, hop = Math.sin(smooth(0.8, 0.95, m) * Math.PI) * still;
+    runners.forEach((P, i) => {
+      poseRun(P, t, 9.5, go);
+      if (still <= 0) { P.g.position.copy(P.slot); P.g.rotation.y = P.face; return; }
+      if (i === 0) {                                 // the host turns to the newcomer, waves, then a high five
+        const wave = smooth(0.12, 0.3, m) * (1 - smooth(0.55, 0.68, m)) * still;
+        P.g.rotation.y = lerp(Math.PI / 2, P.face, go);
+        P.L.arm.rotation.z = (2.55 + Math.sin(t * 9) * 0.22) * wave;
+        P.L.arm.rotation.x = -2.45 * five;
+        P.L.elbow.rotation.x = lerp(P.L.elbow.rotation.x, -0.15, Math.max(five, wave));
+        P.head.rotation.x = -0.1 * still;
+        P.g.position.set(P.slot.x, hop * 0.12, P.slot.z);
+      } else if (i === 1) {                          // the guest walks in from the edge of the park
+        const come = smooth(0, 0.68, m), walking = (1 - smooth(0.6, 0.7, m)) * still;
+        P.g.position.set(lerp(RUN_R + 6.8, RUN_R + 0.98, come), hop * 0.12, lerp(-0.9, 0.05, come)).lerp(P.slot, go);
+        P.g.rotation.y = lerp(-Math.PI / 2, P.face - Math.PI * 2, go);
+        if (walking > 0) {
+          const ph = t * 5.2;
+          for (const [limb, off] of [[P.L, 0], [P.R, Math.PI]]) {
+            const sw = Math.sin(ph + off) * walking;
+            limb.leg.rotation.x = -sw * 0.5; limb.knee.rotation.x = (0.08 + 0.5 * (0.5 + 0.5 * Math.sin(ph + off - 1.3))) * walking;
+            limb.arm.rotation.x = sw * 0.45;
+          }
+          P.hips.position.y = 0.91 + Math.abs(Math.sin(ph)) * 0.025 * walking;
+        }
+        const wave = smooth(0.3, 0.45, m) * (1 - smooth(0.58, 0.68, m)) * still;
+        P.R.arm.rotation.z = -(2.5 + Math.sin(t * 9 + 1) * 0.22) * wave;
+        P.R.arm.rotation.x = lerp(P.R.arm.rotation.x, -2.45, five);
+        P.R.elbow.rotation.x = lerp(P.R.elbow.rotation.x, -0.15, Math.max(five, wave));
+      } else {                                       // the others stand about, watch, and one of them waves too
+        P.g.position.copy(P.slot); P.g.rotation.y = P.face;
+        P.head.rotation.y = -0.5 * still * smooth(0.1, 0.4, m);
+        if (i === 2) {
+          const wave = smooth(0.35, 0.5, m) * (1 - smooth(0.75, 0.9, m)) * still;
+          P.R.arm.rotation.z = -(2.5 + Math.sin(t * 8) * 0.25) * wave;
+          P.R.elbow.rotation.x = lerp(P.R.elbow.rotation.x, -0.2, wave);
+        }
+      }
+    });
   }
   if (near(2, 0.44, 0.66)) {
     for (const P of sitters) poseSit(P, t);
@@ -1164,7 +1389,7 @@ function frame() {
 
   // camera
   town.updateMatrixWorld(true);
-  cameraAt(p);
+  cameraAt(q);
   // on a tall, narrow screen stand further back so the whole group fits
   if (aspect < 0.9) camPos.sub(camLook).multiplyScalar(1 + 0.32 * smooth(0.33, 0.34, p) * (1 - smooth(0.79, 0.83, p)) + 0.22 * smooth(0.14, 0.18, p) * (1 - smooth(0.285, 0.31, p))).add(camLook);
   const pan = smooth(0.89, 0.97, p) * Math.sin(t * 0.11) * (MAP.pan || 0);

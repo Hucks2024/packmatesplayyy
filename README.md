@@ -1,8 +1,9 @@
 # Packmates: the scroll-through tour
 
 A one-page site for [Packmates](https://www.packmates.live). Scrolling moves a camera through a small 3D world
-that shows how the app works: someone posts a meetup on their phone, strangers tap "I'm in", the clock runs to
-the meetup time, and the group is out on a run. Then coffee, a walk and a kickabout, and the camera pulls back
+that shows how the app works: someone posts a meetup on their phone; the camera goes through the screen to someone
+across town, low and in bed, who taps "I'm in"; the night goes by on the wall clock; and at 8:00 the two meet in
+the park and the group is out on a run. Then coffee, a walk and a kickabout, and the camera pulls back
 until the whole world map and its pins are in view.
 
 No build step: plain HTML, CSS and JavaScript, with [three.js](https://threejs.org) (MIT) kept in `js/vendor`.
