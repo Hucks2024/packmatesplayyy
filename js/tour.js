@@ -37,7 +37,8 @@ const pick = (list) => list[Math.floor(rnd() * list.length)];
 /* ---------- Renderer ---------- */
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 const smallScreen = Math.min(window.innerWidth, window.innerHeight) < 700;
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, smallScreen ? 1.75 : 2));
+let dpr = Math.min(window.devicePixelRatio || 1, 2);
+renderer.setPixelRatio(dpr);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.shadowMap.enabled = true;
 
@@ -266,19 +267,19 @@ function person(o = {}) {
   return P;
 }
 // Poses. A positive turn of a leg or arm swings it back, a negative one forward.
-function poseRun(P, t, speed = 9.5) {
+function poseRun(P, t, speed = 9.5, amount = 1) {
   const ph = t * speed + P.phase;
   for (const [limb, off] of [[P.L, 0], [P.R, Math.PI]]) {
     const s = Math.sin(ph + off);
-    limb.leg.rotation.x = -s * 0.85 - 0.12;
-    limb.knee.rotation.x = 0.25 + 1.05 * (0.5 + 0.5 * Math.sin(ph + off - 1.35));
-    limb.arm.rotation.x = s * 0.9;
-    limb.elbow.rotation.x = -1.45;
+    limb.leg.rotation.x = (-s * 0.85 - 0.12) * amount;
+    limb.knee.rotation.x = (0.25 + 1.05 * (0.5 + 0.5 * Math.sin(ph + off - 1.35))) * amount;
+    limb.arm.rotation.set(s * 0.9 * amount, 0, 0);
+    limb.elbow.rotation.x = lerp(-0.25, -1.45, amount);
   }
-  P.hips.position.y = 0.9 + Math.abs(Math.sin(ph)) * 0.07;
-  P.hips.rotation.x = 0.2;
-  P.hips.rotation.y = Math.sin(ph) * 0.12;
-  P.head.rotation.x = -0.12;
+  P.hips.position.y = lerp(0.92 + Math.sin(t * 1.5 + P.phase) * 0.006, 0.9 + Math.abs(Math.sin(ph)) * 0.07, amount);
+  P.hips.rotation.x = 0.2 * amount;
+  P.hips.rotation.y = Math.sin(ph) * 0.12 * amount;
+  P.head.rotation.set(-0.12 * amount, 0, 0);
 }
 function poseWalk(P, t, speed = 5.2) {
   const ph = t * speed + P.phase;
@@ -350,8 +351,21 @@ function beacon(i, emoji, height = 6.2) {
 }
 
 /* ---------- Place 0: evening, the host and the phone ---------- */
-const host = person({ top: 0x7c3aed, bottom: 0x1f2340, skin: 0xd9a273, hair: 0x2a1d18, style: 1, shoes: 0xffffff, h: 1 });
-let phone, phoneTex, phoneCtx, phoneLight;
+const HOST_LOOK = { top: 0x7c3aed, bottom: 0x1f2340, skin: 0xd9a273, hair: 0x2a1d18, style: 1, shoes: 0xffffff };
+const GUEST_LOOK = { top: 0xf97316, bottom: 0x3b3350, skin: 0xf2c9a5, hair: 0x8a5a2c, style: 2, shoes: 0x22d3ee };
+// A clock face for the scenes: the time is told in the background, on a wall or a post.
+function drawClock(g, w, h, day, time) {
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = '#17112e'; g.beginPath(); g.roundRect(0, 0, w, h, 36); g.fill();
+  g.textBaseline = 'middle';
+  g.fillStyle = '#b9a8ff'; g.font = '700 40px "Open Sans",system-ui,sans-serif'; g.textAlign = 'left';
+  g.fillText(day, 30, 46);
+  g.fillStyle = '#ffe3f6'; g.font = '800 142px "Open Sans",system-ui,sans-serif'; g.textAlign = 'center';
+  g.fillText(time, w / 2 + 20, h / 2 + 22);
+}
+const host = person({ ...HOST_LOOK, h: 1 });
+let phone, phoneTex, phoneCtx, phoneLight, lampLight;
+const floods = [];
 const PHONE = { pos: new V3(), n: new V3() };
 {
   const p = places[0];
@@ -378,9 +392,10 @@ const PHONE = { pos: new V3(), n: new V3() };
   mesh(G.cyl, mat(0x2b2540, 0.5), lamp, [0, 2.0, 0], [0.06, 4.0, 0.06]);
   mesh(G.cyl, mat(0x2b2540, 0.5), lamp, [0, 0.12, 0], [0.16, 0.24, 0.16]);
   mesh(G.sphere, new THREE.MeshBasicMaterial({ color: 0xffe2a8 }), lamp, [0, 4.1, 0], 0.26).castShadow = false;
-  const glow = new THREE.PointLight(0xffc37a, 26, 16, 1.8);
-  glow.position.set(0, 3.9, 0);
-  lamp.add(glow);
+  // lights sit on the town itself, so their number never changes: a change makes the browser rebuild every material, a visible stutter on phones
+  lampLight = new THREE.PointLight(0xffc37a, 26, 16, 1.8);
+  lampLight.position.copy(at(0, 1.7, 3.9, -1.2));
+  town.add(lampLight);
   p.add(lamp);
   // the city behind: blocks with lit windows
   const face = canvasTex(64, 128, (g, w, h) => {
@@ -418,16 +433,19 @@ const PHONE = { pos: new V3(), n: new V3() };
   phoneCtx = c.getContext('2d');
   phoneTex = new THREE.CanvasTexture(c);
   phoneTex.colorSpace = THREE.SRGBColorSpace;
-  phoneTex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  phoneTex.generateMipmaps = false;          // it is redrawn while scrolling: no smaller copies to rebuild each time
+  phoneTex.minFilter = THREE.LinearFilter;
   const screen = mesh(new THREE.PlaneGeometry(0.082, 0.178), new THREE.MeshBasicMaterial({ map: phoneTex, toneMapped: false, fog: false }), phone, [0, 0, 0.0056]);
   screen.castShadow = false;
   phoneLight = new THREE.PointLight(0xb9a0ff, 0.5, 2.2, 2);
-  phoneLight.position.set(0, 0, 0.12);
-  phone.add(phoneLight);
   p.add(phone);
   phone.updateWorldMatrix(true, false);
   phone.getWorldPosition(PHONE.pos);
   phone.getWorldDirection(PHONE.n);
+  phoneLight.position.copy(PHONE.pos).addScaledVector(PHONE.n, 0.14);
+  town.add(phoneLight);
+  PHONE.light = phoneLight.position.clone();
+  PHONE.lamp = lampLight.position.clone();
 }
 
 /* ---------- Place 1: sunrise, the run ---------- */
@@ -447,12 +465,27 @@ const runners = [];
   const spots = [[0, 0], [0.8, 1.3], [-0.75, 1.5], [0.15, 2.9], [-0.9, 3.9]];
   const tops = [0x7c3aed, 0xec4899, 0xfbbf24, 0x38bdf8, 0x34d399];
   spots.forEach(([dx, dz], i) => {
-    const P = person({ top: tops[i], shorts: true, sleeves: i % 2 === 0, skin: SKINS[i % SKINS.length], style: i % 3 });
+    const P = i === 0 ? person({ ...HOST_LOOK, h: 1 })           // the two we have been following,
+      : i === 1 ? person({ ...GUEST_LOOK, h: 0.97 })            // and three more who tapped "I'm in"
+        : person({ top: tops[i], shorts: true, sleeves: i % 2 === 0, skin: SKINS[i % SKINS.length], style: i % 3 });
+    P.slot = v(RUN_R + dx, 0, dz);
+    P.face = Math.PI - dz / RUN_R;
     P.g.position.set(RUN_R + dx, 0, dz);
     P.g.rotation.y = Math.PI - dz / RUN_R;      // facing along the track
     runPivot.add(P.g);
     runners.push(P);
   });
+  // the park clock: it is 8:00
+  const post = new THREE.Group();
+  post.position.set(RUN_R + 2.3, 0, 4.7);
+  mesh(G.cyl, mat(0x2b2540, 0.5), post, [0, 1.5, 0], [0.07, 3, 0.07]);
+  mesh(G.box, mat(0x2b2540, 0.5), post, [0, 3.2, 0], [1.5, 0.72, 0.16]);
+  const face = canvasTex(512, 240, (g, w, h) => drawClock(g, w, h, 'SAT', '08:00'));
+  for (const side of [1, -1]) {
+    const m = mesh(new THREE.PlaneGeometry(1.38, 0.62), new THREE.MeshBasicMaterial({ map: face, toneMapped: false }), post, [0, 3.2, side * 0.085], 1, [0, side > 0 ? 0 : Math.PI, 0]);
+    m.castShadow = false;
+  }
+  p.add(post);
   beacon(1, '🏃');
 }
 
@@ -593,8 +626,9 @@ let ball;
     mesh(G.cyl, mat(0x2b2540, 0.5), pole, [0, 3, 0], [0.07, 6, 0.07]);
     mesh(G.box, new THREE.MeshBasicMaterial({ color: 0xfff1cf }), pole, [0, 6.1, 0.1], [0.9, 0.45, 0.12], [0.5, -s * 0.5, 0]).castShadow = false;
     const flood = new THREE.PointLight(0xffe7c2, 60, 26, 1.7);
-    flood.position.set(0, 6, 0.4);
-    pole.add(flood);
+    flood.position.copy(at(4, s * 8.2, 6, -5.2));
+    town.add(flood);
+    floods.push(flood);
     p.add(pole);
   }
   const tops = [0xec4899, 0x7c3aed, 0xfbbf24, 0x34d399, 0x38bdf8];
@@ -615,6 +649,181 @@ let ball;
   ball = mesh(G.sphere, new THREE.MeshStandardMaterial({ map: ballTex, roughness: 0.5 }), p, [0, 0.16, 0], 0.16);
   ringOf(p, 22, 11.5, 15, tree);
   beacon(4, '⚽', 7);
+}
+
+/* ---------- The bedroom: across town, someone who would like to meet people too ---------- */
+const bedroom = new THREE.Group();
+bedroom.position.set(-62, 0, -70);
+town.add(bedroom);
+const inRoom = (x, y, z) => v(bedroom.position.x + x, y, bedroom.position.z + z);
+const guest = person({ ...GUEST_LOOK, h: 0.97 });
+const BED = { x: -0.6, z: -1.2, top: 0.61 };
+let card, cardAsk, cardDone, wallClock, wallClockCtx, wallClockTex, windowPane, bedPhone, duvet;
+{
+  const b = bedroom;
+  const wall = mat(0x6a62a8, 1);
+  mesh(G.box, mat(0x8a7a9c, 1), b, [0, -0.05, 0], [6.4, 0.14, 4.8]);
+  mesh(G.box, wall, b, [0, 1.4, -2.3], [6.4, 2.8, 0.2]);
+  mesh(G.box, wall, b, [-3.1, 1.4, 0], [0.2, 2.8, 4.8]);
+  mesh(G.box, wall, b, [3.1, 1.4, 0], [0.2, 2.8, 4.8]);
+  mesh(G.box, mat(0x4d4680, 1), b, [0, 2.9, 0], [6.6, 0.2, 5]);
+  mesh(G.cyl, mat(0xc4b5fd, 1), b, [0.5, 0.035, 0.7], [1.5, 0.03, 1.1]);
+  // the bed
+  mesh(G.box, mat(0x5a3d2b), b, [BED.x, 0.22, BED.z], [2.3, 0.3, 1.16]);
+  mesh(G.box, mat(0xf3eefc), b, [BED.x, 0.49, BED.z], [2.2, 0.24, 1.08]);
+  mesh(G.box, mat(0x5a3d2b), b, [BED.x - 1.17, 0.7, BED.z], [0.08, 1.1, 1.16]);
+  mesh(G.box, mat(0xffffff), b, [BED.x - 0.8, 0.67, BED.z], [0.5, 0.12, 0.8]);
+  duvet = mesh(capsule(0.3, 0.9), mat(0x7c6ad6, 1), b, [BED.x + 0.42, BED.top + 0.14, BED.z], [1, 1, 1.55], [0, 0, Math.PI / 2]);
+  // a bedside table and lamp, a plant, last night's clothes
+  mesh(G.box, mat(0x8a5a3c), b, [-2.4, 0.3, -1.7], [0.6, 0.6, 0.6]);
+  mesh(G.cyl, mat(0x2b2540, 0.5), b, [-2.4, 0.75, -1.7], [0.03, 0.3, 0.03]);
+  mesh(G.cone, mat(0xd9cdf5), b, [-2.4, 0.98, -1.7], [0.2, 0.26, 0.2]);
+  mesh(G.cyl, mat(0xc26a4a), b, [2.5, 0.25, 1.3], [0.26, 0.5, 0.26]);
+  mesh(G.blob, mat(0x3f8f5a, 0.9, { flatShading: true }), b, [2.5, 0.9, 1.3], 0.5);
+  mesh(G.blob, mat(0x38bdf8, 1, { flatShading: true }), b, [1.6, 0.1, -0.2], [0.4, 0.12, 0.3]);
+  mesh(G.blob, mat(0xec4899, 1, { flatShading: true }), b, [1.2, 0.08, 0.1], [0.3, 0.1, 0.34]);
+  // the window: night outside, then morning
+  windowPane = mesh(new THREE.PlaneGeometry(1.5, 1.3), new THREE.MeshBasicMaterial({ color: 0x1b1a4a, fog: false }), b, [1.75, 1.6, -2.19]);
+  windowPane.castShadow = false;
+  const frame = mat(0xf3eefc);
+  mesh(G.box, frame, b, [1.75, 2.28, -2.17], [1.66, 0.08, 0.08]);
+  mesh(G.box, frame, b, [1.75, 0.92, -2.15], [1.8, 0.08, 0.16]);
+  mesh(G.box, frame, b, [0.96, 1.6, -2.17], [0.08, 1.44, 0.08]);
+  mesh(G.box, frame, b, [2.54, 1.6, -2.17], [0.08, 1.44, 0.08]);
+  mesh(G.box, frame, b, [1.75, 1.6, -2.18], [0.05, 1.3, 0.04]);
+  mesh(G.box, mat(0x7c3aed, 1), b, [0.72, 1.55, -2.12], [0.34, 1.7, 0.1]);
+  mesh(G.box, mat(0x7c3aed, 1), b, [2.78, 1.55, -2.12], [0.34, 1.7, 0.1]);
+  // the clock on the wall
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 240;
+  wallClockCtx = c.getContext('2d');
+  drawClock(wallClockCtx, 512, 240, 'FRI', '21:14');
+  wallClockTex = new THREE.CanvasTexture(c);
+  wallClockTex.colorSpace = THREE.SRGBColorSpace;
+  wallClockTex.generateMipmaps = false;
+  wallClockTex.minFilter = THREE.LinearFilter;
+  wallClock = mesh(new THREE.PlaneGeometry(1.5, 0.7), new THREE.MeshBasicMaterial({ map: wallClockTex, toneMapped: false, fog: false, transparent: true }), b, [BED.x - 0.1, 2.0, -2.19]);
+  wallClock.castShadow = false;
+  // the guest, with a worried brow
+  b.add(guest.g);
+  const brow = mat(0x3a2414, 0.9);
+  guest.brows = [1, -1].map((side) => mesh(G.box, brow, guest.head, [side * 0.055, 0.2, 0.146], [0.055, 0.012, 0.012], [0, 0, -side * 0.5]));
+  guest.brows.forEach((m) => { m.castShadow = false; });
+  bedPhone = mesh(new THREE.BoxGeometry(0.075, 0.15, 0.012), new THREE.MeshBasicMaterial({ color: 0xd8ccff }), guest.L.elbow, [0, -0.33, 0.06], 1, [0.5, 0, 0]);
+  bedPhone.castShadow = false;
+  // what is on their phone, held up large so it can be read: a meetup nearby, then "You're in"
+  const cardTex = (done) => canvasTex(640, 380, (g, w, h) => {
+    g.fillStyle = '#fff'; g.beginPath(); g.roundRect(8, 8, w - 16, h - 16, 44); g.fill();
+    drawPin(g, 96, 178, 130);
+    g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+    g.fillStyle = '#64748b'; g.font = '700 26px "Open Sans",system-ui,sans-serif'; g.fillText('NEW MEETUP NEAR YOU', 176, 78);
+    g.fillStyle = '#0f172a'; g.font = '800 48px "Open Sans",system-ui,sans-serif'; g.fillText('Morning run', 176, 132);
+    g.fillStyle = '#64748b'; g.font = '600 28px "Open Sans",system-ui,sans-serif'; g.fillText('Sat 8:00 · Riverside Park', 176, 176);
+    const fill = g.createLinearGradient(40, 0, w - 40, 0);
+    if (done) { fill.addColorStop(0, '#16a34a'); fill.addColorStop(1, '#22c55e'); } else { fill.addColorStop(0, '#7c3aed'); fill.addColorStop(0.55, '#c026d3'); fill.addColorStop(1, '#ec4899'); }
+    g.fillStyle = fill; g.beginPath(); g.roundRect(40, 232, w - 80, 100, 50); g.fill();
+    g.fillStyle = '#fff'; g.font = '800 44px "Open Sans",system-ui,sans-serif'; g.textAlign = 'center';
+    g.fillText(done ? "You're in ✓" : "I'm in", w / 2, 298);
+  });
+  cardAsk = cardTex(false);
+  cardDone = cardTex(true);
+  card = new THREE.Sprite(new THREE.SpriteMaterial({ map: cardAsk, depthTest: false, fog: false, toneMapped: false }));
+  card.position.set(BED.x - 0.1, 1.6, BED.z + 0.5);
+  card.renderOrder = 4;
+  b.add(card);
+}
+// The guest through the night: lying on their side with the phone, asleep, then up and out.
+const hip = v(), hipLie = v(BED.x + 0.02, BED.top + 0.25, BED.z), hipSit = v(BED.x + 0.3, BED.top + 0.08, BED.z + 0.48), hipStand = v(0.85, 0.92, -0.5);
+let clockText = '', clockDrawn = -1;
+function playBedroom(q, t) {
+  const P = guest;
+  const awake = 1 - smooth(0.428, 0.44, q);                    // phone down, eyes shut
+  const up = smooth(0.462, 0.474, q), stand = smooth(0.475, 0.489, q);
+  const tilt = (Math.PI / 2) * (1 - up), h = 0.92 * P.s;
+  hip.lerpVectors(hipLie, hipSit, up).lerp(hipStand, stand);
+  if (stand <= 0) hip.y += Math.sin(t * 1.4) * 0.006;
+  P.g.rotation.set(0, 0, tilt);
+  P.g.position.set(hip.x + h * Math.sin(tilt), hip.y - h * Math.cos(tilt), hip.z);
+  P.hips.position.y = 0.92;
+  P.hips.rotation.set(0, 0, 0);
+  const sit = up * (1 - stand), lie = 1 - up, stretch = Math.sin(stand * Math.PI);
+  for (const limb of [P.L, P.R]) { limb.leg.rotation.x = -0.35 * lie - 1.45 * sit; limb.knee.rotation.x = 0.7 * lie + 1.4 * sit; }
+  P.L.arm.rotation.set((-1.25 * awake - 0.5 * (1 - awake)) * lie - 0.2 * sit, 0, 2.5 * stretch);
+  P.L.elbow.rotation.x = (-1.35 * awake - 0.6 * (1 - awake)) * lie - 0.3 * sit;
+  P.R.arm.rotation.set(-0.6 * lie - 0.2 * sit, 0, -2.5 * stretch);
+  P.R.elbow.rotation.x = -1.5 * lie - 0.3 * sit;
+  P.head.rotation.set(0.3 * lie * awake - 0.25 * stretch, 0, 0);
+  const glad = smooth(0.418, 0.426, q);                         // the brow lifts once they are in
+  P.brows.forEach((m, i) => { m.rotation.z = (i ? 0.5 : -0.5) * (1 - glad); });
+  bedPhone.visible = awake > 0.05 && up < 0.5;
+  // the card: pops up, is tapped, goes away
+  const show = backOut(smooth(0.385, 0.4, q)) * (1 - smooth(0.432, 0.445, q));
+  card.visible = show > 0.01;
+  const tapped = q > 0.418;
+  if (card.material.map !== (tapped ? cardDone : cardAsk)) card.material.map = tapped ? cardDone : cardAsk;
+  const press = 1 - 0.07 * smooth(0.412, 0.418, q) * (1 - smooth(0.418, 0.426, q));
+  const fit = (aspect < 0.9 ? 0.66 : 1) * show * press;      // narrower on a phone, so the whole card is in view
+  card.scale.set(1.5 * fit, 0.89 * fit, 1);
+  card.position.y = aspect < 0.9 ? 1.5 : 1.6;
+  // the night goes by on the wall clock and in the window
+  const night = smooth(0.44, 0.488, q);
+  const mins = 21 * 60 + 14 + Math.round(616 * night);
+  const text = `${String(Math.floor(mins / 60) % 24).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+  if (text !== clockText && t - clockDrawn > 0.03) {
+    clockText = text; clockDrawn = t;
+    drawClock(wallClockCtx, 512, 240, mins >= 24 * 60 ? 'SAT' : 'FRI', text);
+    wallClockTex.needsUpdate = true;
+  }
+  const dawn = smooth(0.455, 0.49, q);
+  windowPane.material.color.setRGB(lerp(0.012, 1, dawn), lerp(0.012, 0.6, dawn), lerp(0.07, 0.36, dawn));
+  // the two lights of the host's park do duty here: the glow of the phone, and the window
+  phoneLight.position.copy(inRoom(BED.x - 0.75, 1.0, BED.z + 0.45));
+  phoneLight.color.setHex(0xc9b8ff);
+  phoneLight.distance = 4;
+  phoneLight.intensity = 1.6 * awake * (1 - up);
+  lampLight.position.copy(inRoom(1.75, 1.7, -1.5));
+  lampLight.color.setRGB(lerp(0.4, 1, dawn), lerp(0.42, 0.62, dawn), lerp(0.9, 0.3, dawn));
+  lampLight.intensity = lerp(4, 34, dawn);
+}
+
+/* ---------- One mesh per place for everything that never moves ----------
+   Trees, benches, the café and so on are hundreds of small parts. Drawn one by one they are what slows
+   a phone down, so each place's still parts are joined into a single mesh, coloured per corner. */
+function bake(place, moving) {
+  place.updateMatrixWorld(true);
+  const inverse = new THREE.Matrix4().copy(place.matrixWorld).invert();
+  const local = new THREE.Matrix4();
+  const groups = new Map();          // flat-shaded and smooth parts are kept apart
+  const used = [];
+  place.traverse((o) => {
+    const m = o.material;
+    if (!o.isMesh || !o.castShadow || !m.isMeshStandardMaterial || m.map || m.transparent || m.vertexColors || m.metalness > 0) return;
+    for (let a = o; a && a !== place; a = a.parent) if (moving.includes(a)) return;
+    const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    g.applyMatrix4(local.multiplyMatrices(inverse, o.matrixWorld));
+    const key = m.flatShading ? 'flat' : 'smooth';
+    if (!groups.has(key)) groups.set(key, { pos: [], nor: [], col: [] });
+    const out = groups.get(key), pos = g.attributes.position.array, nor = g.attributes.normal.array;
+    for (let i = 0; i < pos.length; i += 3) {
+      out.pos.push(pos[i], pos[i + 1], pos[i + 2]);
+      out.nor.push(nor[i], nor[i + 1], nor[i + 2]);
+      out.col.push(m.color.r, m.color.g, m.color.b);
+    }
+    g.dispose();
+    used.push(o);
+  });
+  for (const o of used) o.removeFromParent();
+  for (const [key, data] of groups) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(data.pos, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(data.nor, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(data.col, 3));
+    mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, flatShading: key === 'flat' }), place);
+  }
+}
+{
+  const moving = [...people.map((P) => P.g), dog, phone, ball, ...beacons.map((b) => b.g)];
+  for (const place of [...places, bedroom]) bake(place, moving);
 }
 
 /* ---------- The world map ---------- */
@@ -676,32 +885,45 @@ const CITIES = [
   [35.68, 139.69], [34.69, 135.5], [25.03, 121.57], [43.24, 76.89], [41.3, 69.24],
   [-33.87, 151.21], [-37.81, 144.96], [-27.47, 153.03], [-31.95, 115.86], [-36.85, 174.76], [-41.29, 174.78], [21.31, -157.86],
 ];
+// One pin per city, then more on open land, none closer than a few degrees to another, so they
+// are spread over the whole map instead of piled up on Europe.
 const pinSpots = [];
+const GAP = 8.5;
+const roomFor = (p) => pinSpots.every((s) => Math.hypot(s.p.x - p.x, s.p.z - p.z) > GAP);
 CITIES.forEach(([lat, lon], i) => {
-  pinSpots.push({ p: toMap(lat, lon), s: i === 0 ? 1.7 : rr(0.95, 1.3) });
-  for (let k = 0; k < 3; k++) {
-    const la = lat + rr(-5, 5), lo = lon + rr(-7, 7);
-    if (isLand(la, lo)) pinSpots.push({ p: toMap(la, lo), s: rr(0.5, 0.85) });
-  }
+  const p = toMap(lat, lon);
+  if (i === 0 || roomFor(p)) pinSpots.push({ p, s: i === 0 ? 1.35 : rr(0.9, 1.1), home: i === 0 });
 });
+for (let tries = 0; tries < 4000 && pinSpots.length < 150; tries++) {
+  const lat = rr(-50, 68), lon = rr(-170, 178);
+  if (!isLand(lat, lon) || !isLand(lat + 1.5, lon) || !isLand(lat, lon + 1.5)) continue;
+  const p = toMap(lat, lon);
+  if (roomFor(p)) pinSpots.push({ p, s: rr(0.75, 1) });
+}
 pinSpots.forEach((s) => { s.far = Math.hypot(s.p.x, s.p.z); s.phase = rr(0, 6.28); });
-const mapPins = new THREE.InstancedMesh(pinGeo(12), new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }), pinSpots.length);
-mapPins.frustumCulled = false;
-world.add(mapPins);
-const glowTex = canvasTex(64, 64, (g) => {
-  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grad.addColorStop(0, 'rgba(255,190,240,.9)'); grad.addColorStop(0.35, 'rgba(236,72,153,.35)'); grad.addColorStop(1, 'rgba(236,72,153,0)');
-  g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
+// a phone shows the map much smaller, so it gets a thinner set: pins at least twice as far apart
+{
+  const kept = [];
+  for (const s of pinSpots) {
+    s.phone = kept.every((k) => Math.hypot(k.p.x - s.p.x, k.p.z - s.p.z) > GAP * 1.9);
+    if (s.phone) kept.push(s);
+  }
+}
+pinSpots.sort((a, b) => a.p.z - b.p.z);            // far ones first, so nearer pins are drawn over them
+// The pin itself is the app's own: a flat picture that always faces the camera, standing on its point.
+const pinTex = canvasTex(192, 256, (g, w, h) => {
+  g.shadowColor = 'rgba(20,6,50,.55)'; g.shadowBlur = 10; g.shadowOffsetY = 3;
+  drawPin(g, w / 2, h - 14, h - 28);
 });
-const glows = (() => {
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pinSpots.flatMap((s) => [s.p.x, 0.05, s.p.z]), 3));
-  const m = new THREE.PointsMaterial({ map: glowTex, size: 9, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 });
-  const p = new THREE.Points(g, m);
-  p.frustumCulled = false;
-  world.add(p);
-  return p;
-})();
+const mapPins = new THREE.InstancedMesh(
+  new THREE.PlaneGeometry(0.75, 1).translate(0, 0.5 - 14 / 256, 0),
+  new THREE.MeshBasicMaterial({ map: pinTex, transparent: true, depthWrite: false, toneMapped: false, fog: false }),
+  pinSpots.length,
+);
+mapPins.frustumCulled = false;
+mapPins.renderOrder = 3;
+world.add(mapPins);
+
 const pulse = mesh(new THREE.RingGeometry(0.86, 1, 48), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false }), world, [0, 0.06, 0], 1, [-Math.PI / 2, 0, 0]);
 pulse.castShadow = false;
 const dummy = new THREE.Object3D();
@@ -716,20 +938,24 @@ function brandFill(g, x0, y0, x1, y1) {
   return f;
 }
 function drawPin(g, x, y, s) {            // x, y is the point of the pin; s its height
-  const r = s * 0.37, cy = y - s + r;
+  const w = s * 0.35;
   g.beginPath();
   g.moveTo(x, y);
-  const a = 0.63;
-  g.lineTo(x - Math.cos(a) * r, cy + Math.sin(a) * r);
-  g.arc(x, cy, r, Math.PI - a, a, false);
+  g.bezierCurveTo(x - s * 0.2, y - s * 0.23, x - w, y - s * 0.44, x - w, y - s * 0.655);
+  g.bezierCurveTo(x - w, y - s * 0.9, x - s * 0.2, y - s, x, y - s);
+  g.bezierCurveTo(x + s * 0.2, y - s, x + w, y - s * 0.9, x + w, y - s * 0.655);
+  g.bezierCurveTo(x + w, y - s * 0.44, x + s * 0.2, y - s * 0.23, x, y);
   g.closePath();
-  g.fillStyle = brandFill(g, x, y - s, x, y);
+  const fill = g.createLinearGradient(x, y - s, x, y);
+  fill.addColorStop(0, '#8b5cf6'); fill.addColorStop(0.55, '#c026d3'); fill.addColorStop(1, '#ec4899');
+  g.fillStyle = fill;
   g.fill();
+  g.shadowColor = 'transparent';
   g.fillStyle = '#fff';
-  for (const [dx, k] of [[-0.42, 0.72], [0.42, 0.72], [0, 1]]) {
-    const px = x + dx * r, u = r * 0.2 * k;
-    g.beginPath(); g.arc(px, cy - u * 0.9, u * 0.72, 0, 7); g.fill();
-    rrect(g, px - u, cy + u * 0.05, u * 2, u * 2.1, u * 0.9); g.fill();
+  for (const [dx, k, up] of [[-0.2, 0.78, 0], [0.2, 0.78, 0], [0, 1, 0.012]]) {
+    const px = x + dx * s, head = s * 0.058 * k, body = s * 0.082 * k, base = y - s * (0.395 + up);
+    g.beginPath(); g.arc(px, base - body * 2.25 - head * 1.25, head, 0, 7); g.fill();
+    rrect(g, px - body, base - body * 2.25, body * 2, body * 2.25, [body, body, body * 0.45, body * 0.45]); g.fill();
   }
 }
 const FACES = [['#d9a273', '#7c3aed'], ['#f2c9a5', '#ec4899'], ['#a9714b', '#fbbf24'], ['#f6d7bd', '#38bdf8'], ['#7a4b2f', '#34d399']];
@@ -780,9 +1006,8 @@ function drawPhone(s, t) {
     // the card at the bottom: who is in
     const up = smooth(0.56, 0.62, s);
     const top = lerp(H + 20, 800, up);
-    g.shadowColor = 'rgba(40,10,90,.25)'; g.shadowBlur = 40; g.shadowOffsetY = -6;
+    g.fillStyle = 'rgba(40,10,90,.10)'; rrect(g, 0, top - 10, W, 420, 50); g.fill();
     g.fillStyle = '#fff'; rrect(g, 0, top, W, 420, 44); g.fill();
-    g.shadowColor = 'transparent';
     g.fillStyle = '#e2e8f0'; rrect(g, W / 2 - 34, top + 16, 68, 8, 4); g.fill();
     g.textAlign = 'left'; g.textBaseline = 'alphabetic';
     g.fillStyle = INK; g.font = font(42, 800); g.fillText('🏃 Morning run', 34, top + 86);
@@ -859,7 +1084,8 @@ function drawPhone(s, t) {
 /* ---------- The camera's path ----------
    Each key is where the camera is and what it looks at when the scroll reaches p. A key with a "frame"
    is given in that object's own space, so the camera can ride along with the runners and the walkers.
-   A new list is a cut: the jump through the phone happens behind the wash of colour. */
+   A new list is a cut: the jump through the phone, and the one out of the bedroom window, happen behind a wash of colour.
+   Times here are story time (see QMAX below), not the 0..1 of the scroll. */
 const pc = (d, side = 0, up = 0) => PHONE.pos.clone().addScaledVector(PHONE.n, d).add(v(side, up, 0));
 const mapEnd = { pos: v(0, 200, 150), look: v(8, 0, 36) };
 const mapEnd2 = { pos: v(0, 220, 160), look: v(8, 0, 36) };
@@ -873,24 +1099,38 @@ const SHOTS = [
     { p: 0.27, pos: pc(0.31), look: PHONE.pos.clone() },
     { p: 0.33, pos: pc(0.1), look: PHONE.pos.clone() },
   ],
+  // through the phone, into the bedroom
   [
-    { p: 0.33, frame: runPivot, pos: v(RUN_R + 0.6, 0.8, -9), look: v(RUN_R, 1.15, 0) },
-    { p: 0.385, frame: runPivot, pos: v(RUN_R + 1.6, 1.05, -6.4), look: v(RUN_R - 0.1, 1.1, 1.2) },
-    { p: 0.43, frame: runPivot, pos: v(RUN_R + 4.6, 1.5, -2.6), look: v(RUN_R - 0.2, 1.0, 1.6) },
-    { p: 0.475, frame: runPivot, pos: v(RUN_R + 5.2, 2.4, 5.5), look: v(RUN_R - 0.2, 1.0, 1.2) },
-    { p: 0.50, pos: v(-12, 8.5, 20), look: at(2, 0, 2.2, 0) },
-    { p: 0.535, pos: at(2, 3.4, 2.1, 5.4), look: at(2, 0, 1.0, 0) },
-    { p: 0.585, pos: at(2, -3.3, 1.75, 4.4), look: at(2, 0, 1.0, 0) },
-    { p: 0.61, pos: v(16, 8, 14), look: at(3, 0, 2, 0) },
-    { p: 0.645, frame: walkPivot, pos: v(WALK_R + 1.9, 1.25, -6.2), look: v(WALK_R, 1.05, 0.8) },
-    { p: 0.69, frame: walkPivot, pos: v(WALK_R + 4.6, 1.7, -0.6), look: v(WALK_R - 0.2, 1.0, 1.4) },
-    { p: 0.715, pos: v(46, 8.5, 14), look: at(4, 0, 2, 0) },
-    { p: 0.745, pos: at(4, 5.2, 2.0, 6.6), look: at(4, 0, 1.0, 0) },
-    { p: 0.79, pos: at(4, -4.8, 3.0, 6.4), look: at(4, 0, 1.0, 0) },
-    { p: 0.825, pos: v(34, 60, 62), look: v(22, 0, 0) },
-    { p: 0.87, pos: v(4, 120, 96), look: v(4, 0, 22) },
-    { p: 0.93, ...mapEnd },
-    { p: 1.00, ...mapEnd2 },
+    { p: 0.33, pos: inRoom(0.4, 1.8, 5.2), look: inRoom(-0.5, 1.15, -1.2) },
+    { p: 0.372, pos: inRoom(-0.1, 1.5, 3.0), look: inRoom(-0.7, 1.15, -1.2) },
+    { p: 0.405, pos: inRoom(-0.9, 1.4, 1.5), look: inRoom(-0.75, 1.3, -1.2) },
+    { p: 0.435, pos: inRoom(-0.9, 1.4, 1.5), look: inRoom(-0.7, 1.3, -1.2) },
+    { p: 0.465, pos: inRoom(0.5, 1.55, 3.5), look: inRoom(0.2, 1.45, -2.2) },
+    { p: 0.486, pos: inRoom(0.9, 1.55, 3.0), look: inRoom(0.9, 1.45, -2.2) },
+    { p: 0.50, pos: inRoom(1.5, 1.6, 0.8), look: inRoom(1.75, 1.6, -2.2) },
+  ],
+  // out of the window, into the morning: the two meet, then everyone runs
+  [
+    { p: 0.50, frame: runPivot, pos: v(RUN_R + 5.2, 2.0, -4.6), look: v(RUN_R + 1.6, 1.25, 0.6) },
+    { p: 0.55, frame: runPivot, pos: v(RUN_R + 3.6, 1.55, -4.2), look: v(RUN_R + 0.7, 1.3, 0.4) },
+    { p: 0.60, frame: runPivot, pos: v(RUN_R + 0.5, 1.5, -3.4), look: v(RUN_R + 0.5, 1.45, 0.4) },
+    { p: 0.685, frame: runPivot, pos: v(RUN_R + 1.6, 1.05, -6.4), look: v(RUN_R - 0.1, 1.1, 1.2) },
+    { p: 0.730, frame: runPivot, pos: v(RUN_R + 4.6, 1.5, -2.6), look: v(RUN_R - 0.2, 1.0, 1.6) },
+    { p: 0.775, frame: runPivot, pos: v(RUN_R + 5.2, 2.4, 5.5), look: v(RUN_R - 0.2, 1.0, 1.2) },
+    { p: 0.800, pos: v(-12, 8.5, 20), look: at(2, 0, 2.2, 0) },
+    { p: 0.835, pos: at(2, 3.4, 2.1, 5.4), look: at(2, 0, 1.0, 0) },
+    { p: 0.885, pos: at(2, -3.3, 1.75, 4.4), look: at(2, 0, 1.0, 0) },
+    { p: 0.910, pos: v(16, 8, 14), look: at(3, 0, 2, 0) },
+    { p: 0.945, frame: walkPivot, pos: v(WALK_R + 1.9, 1.25, -6.2), look: v(WALK_R, 1.05, 0.8) },
+    { p: 0.990, frame: walkPivot, pos: v(WALK_R + 4.6, 1.7, -0.6), look: v(WALK_R - 0.2, 1.0, 1.4) },
+    { p: 1.002, frame: walkPivot, pos: v(WALK_R + 5.4, 6.8, -0.4), look: v(WALK_R - 0.2, 1.0, 1.4) },      // up over the pines before leaving
+    { p: 1.015, pos: v(46, 8.5, 14), look: at(4, 0, 2, 0) },
+    { p: 1.045, pos: at(4, 5.2, 2.0, 6.6), look: at(4, 0, 1.0, 0) },
+    { p: 1.090, pos: at(4, -4.8, 3.0, 6.4), look: at(4, 0, 1.0, 0) },
+    { p: 1.125, pos: v(34, 60, 62), look: v(22, 0, 0) },
+    { p: 1.170, pos: v(4, 120, 96), look: v(4, 0, 22) },
+    { p: 1.230, ...mapEnd },
+    { p: 1.300, ...mapEnd2 },
   ],
 ];
 const A = { pos: [v(), v(), v(), v()], look: [v(), v(), v(), v()] };
@@ -915,13 +1155,13 @@ function hermite(p1, m1, p2, m2, t, out) {
 }
 const camPos = v(), camLook = v();
 function cameraAt(p) {
-  const shot = p < SHOTS[1][0].p ? SHOTS[0] : SHOTS[1];
+  const shot = p < SHOTS[1][0].p ? SHOTS[0] : p < SHOTS[2][0].p ? SHOTS[1] : SHOTS[2];
   let i = 0;
   while (i < shot.length - 2 && p > shot[i + 1].p) i++;
   const k = [shot[Math.max(0, i - 1)], shot[i], shot[i + 1], shot[Math.min(shot.length - 1, i + 2)]];
   for (let j = 0; j < 4; j++) keyInto(k[j], A.pos[j], A.look[j]);
   let t = clamp((p - k[1].p) / (k[2].p - k[1].p));
-  t = lerp(t, t * t * (3 - 2 * t), 0.55);
+  t = lerp(t, t * t * (3 - 2 * t), 0.3);
   for (const [pts, out] of [[A.pos, camPos], [A.look, camLook]]) {
     tangent(pts[0], pts[1], pts[2], i > 0, true, tan0);
     tangent(pts[1], pts[2], pts[3], true, i + 2 < shot.length, tan1);
@@ -933,16 +1173,23 @@ function cameraAt(p) {
 const caps = [...document.querySelectorAll('.cap')].map((el) => ({ el, from: +el.dataset.from, to: +el.dataset.to, on: null }));
 const rail = [...document.querySelectorAll('.rail li')].map((el) => ({ el, at: +el.dataset.at }));
 const wash = document.querySelector('.wash');
-const washDay = document.querySelector('.wash__day');
-const washTime = document.querySelector('.wash__time');
-const washClock = document.querySelector('.wash__clock');
+let washOn = false, washDawn = false, pastStage = null;
 const topbar = document.querySelector('.topbar');
-let lastTime = '', lastRail = -1;
-function setWords(p) {
+let lastRail = -1;
+// write a CSS variable only when its value changes, so a still frame costs the page nothing
+const written = new Map();
+function setVar(el, name, value) {
+  let seen = written.get(el);
+  if (!seen) written.set(el, seen = {});
+  if (seen[name] === value) return;
+  seen[name] = value;
+  el.style.setProperty(name, value);
+}
+function setWords(p, legacyP) {
   for (const c of caps) {
     const o = smooth(c.from, c.from + 0.022, p) * (1 - smooth(c.to - 0.022, c.to, p));
     const on = o > 0.01;
-    c.el.style.setProperty('--o', o.toFixed(3));
+    setVar(c.el, '--o', o.toFixed(2));
     if (on !== c.on) { c.on = on; c.el.classList.toggle('is-on', on); }
   }
   let now = 0;
@@ -951,32 +1198,21 @@ function setWords(p) {
     lastRail = now;
     rail.forEach((r, i) => { r.el.classList.toggle('is-now', i === now); r.el.classList.toggle('is-done', i < now); });
   }
-  stage.style.setProperty('--rail', (1 - smooth(0.9, 0.94, p)).toFixed(3));
-  // the wash and its clock
-  const o = smooth(0.29, 0.312, p) * (1 - smooth(0.352, 0.385, p));
-  wash.style.setProperty('--o', o.toFixed(3));
-  wash.classList.toggle('is-on', o > 0.005);
-  if (o > 0.005) {
-    const c = smooth(0.3, 0.348, p);
-    const mins = 21 * 60 + 14 + Math.round(646 * c);
-    const hh = Math.floor(mins / 60) % 24, mm = mins % 60;
-    const text = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
-    if (text !== lastTime) {
-      lastTime = text;
-      washTime.textContent = text;
-      washDay.textContent = mins >= 24 * 60 ? 'Saturday' : 'Friday';
-    }
-    const done = smooth(0.94, 1, c);
-    washClock.style.setProperty('--n', done.toFixed(3));
-    washClock.style.setProperty('--s', (0.92 + 0.08 * c + done * 0.05).toFixed(3));
-  }
+  setVar(stage, '--rail', (1 - smooth(0.9, 0.94, legacyP)).toFixed(2));
+  // the two cuts: violet through the phone, warm through the window
+  const o = Math.max(smooth(0.295, 0.318, p) * (1 - smooth(0.338, 0.362, p)), smooth(0.487, 0.499, p) * (1 - smooth(0.505, 0.53, p)));
+  setVar(wash, '--o', o.toFixed(2));
+  if ((o > 0.005) !== washOn) { washOn = o > 0.005; wash.classList.toggle('is-on', washOn); }
+  if ((p > 0.42) !== washDawn) { washDawn = p > 0.42; wash.classList.toggle('wash--dawn', washDawn); }
 }
 
 /* ---------- Size ---------- */
-let W = 1, H = 1, aspect = 1;
+let W = 1, H = 1, aspect = 1, storyHeight = 1, barHeight = 60;
 function resize() {
   W = stage.clientWidth; H = stage.clientHeight;
   if (!W || !H) return;
+  storyHeight = story.offsetHeight;
+  barHeight = topbar ? topbar.offsetHeight : 60;
   aspect = W / H;
   renderer.setSize(W, H, false);
   camera.aspect = aspect;
@@ -996,50 +1232,118 @@ function resize() {
 
 /* ---------- Every frame ---------- */
 const clock = new THREE.Timer();
-let target = 0, pNow = 0, raf = 0, visible = true, lastPhone = -1, started = false;
+/* Story time. The first version of the story ran from 0 to 1. The bedroom and the meeting were added in
+   the middle, between 0.33 and 0.63, so the story now runs from 0 to QMAX. "q" is that story time; the
+   parts written before (the day's moods, which places are drawn, the zoom out to the map) still read
+   the old 0..1 clock, which simply stands still while the new middle plays. */
+const QMAX = 1.3;
+const oldClock = (q) => (q < 0.33 ? q : q < 0.64 ? Math.min(0.34, q) : q - 0.3);
+let runAngle = 0;
+let target = 0, pNow = 0, raf = 0, visible = true, lastPhone = -1, started = false, slow = 0, phoneDrawn = -1;
 const look = v(), side = v();
 function readScroll() {
   const rect = story.getBoundingClientRect();
-  const span = story.offsetHeight - stage.offsetHeight;
-  target = span > 0 ? clamp(-rect.top / span) : 0;
+  const span = storyHeight - H;
+  target = span > 0 ? clamp(-rect.top / span) * QMAX : 0;
   visible = rect.bottom > 0 && rect.top < window.innerHeight;
-  root.classList.toggle('past-stage', rect.bottom <= (topbar ? topbar.offsetHeight : 60) + 6);
+  const past = rect.bottom <= barHeight + 6;
+  if (past !== pastStage) { pastStage = past; root.classList.toggle('past-stage', past); }
 }
 function frame() {
   raf = 0;
+  readScroll();
   if (!visible || document.hidden) return;
   clock.update();
   const dt = Math.min(clock.getDelta(), 0.1), t = clock.getElapsed();
   pNow += (target - pNow) * (1 - Math.exp(-dt * 5.5));
   if (Math.abs(target - pNow) < 0.00005) pNow = target;
-  const p = pNow;
+  const q = pNow, p = oldClock(q);
 
-  setMood(p);
-  setWords(p);
+  // night in the park and the bedroom, turning to sunrise as the night goes by on the wall clock
+  setMood(q < 0.33 ? q : q < 0.63 ? lerp(0.32, 0.33, smooth(0.455, 0.495, q)) : p);
+  setWords(q, p);
 
   // the town shrinks to a point on the map as the camera leaves
   const shrink = smooth(0.835, 0.885, p);
   const s = lerp(1, 0.012, shrink * shrink * (3 - 2 * shrink));
-  town.visible = shrink < 1;
+  const gone = shrink >= 1;
+  for (const g of places) if (gone) g.visible = false;
   town.scale.setScalar(s);
   ground.material.opacity = 1 - smooth(0.80, 0.845, p);
   ground.visible = ground.material.opacity > 0.01;
 
   // only the places near the story are drawn and moved
-  const near = (i, a, b) => { const on = p > a && p < b; places[i].visible = on; return on; };
-  if (near(0, -1, 0.36) | (p > 0.8 && (places[0].visible = true))) {
+  const near = (i, a, b) => { const on = !gone && ((p > a && p < b) || p > 0.8); places[i].visible = on; return on; };
+  const middle = q > 0.322 && q < 0.64;        // the bedroom and the meeting: the host's park is out of sight
+  const hostOn = near(0, -1, 0.36) && (!middle || p > 0.8);
+  places[0].visible = hostOn;
+  if (hostOn) {
     host.hips.position.y = 0.92 + Math.sin(t * 1.6) * 0.004;
     host.head.rotation.x = 0.32 + Math.sin(t * 0.8) * 0.02;
     // the form is filled in while the first words are up, the map and the people joining while the second are
     const ps = p < 0.215 ? 0.47 * clamp((p - 0.135) / 0.08) : 0.47 + 0.53 * clamp((p - 0.215) / 0.08);
-    if (Math.abs(ps - lastPhone) > 0.0008 || (p < 0.34 && (t * 4 | 0) !== ((t - dt) * 4 | 0))) { lastPhone = ps; drawPhone(ps, t); }
-    phoneLight.intensity = 0.45 + Math.sin(t * 2) * 0.05;
+    const due = Math.abs(ps - lastPhone) > 0.0008 ? t - phoneDrawn > 0.03 : p < 0.34 && t - phoneDrawn > 0.25;
+    if (due) { lastPhone = ps; phoneDrawn = t; drawPhone(ps, t); }
   }
-  if (near(1, 0.3, 0.56) | (p > 0.8 && (places[1].visible = true))) {
-    runPivot.rotation.y = t * 0.5;
-    for (const P of runners) poseRun(P, t);
+  const lit = 1 - shrink;
+  const inBed = q > 0.322 && q < 0.51;
+  bedroom.visible = inBed;
+  if (inBed) playBedroom(q, t);
+  else {
+    lampLight.position.copy(PHONE.lamp); lampLight.color.setHex(0xffc37a);
+    phoneLight.position.copy(PHONE.light); phoneLight.color.setHex(0xb9a0ff); phoneLight.distance = 2.2;
+    lampLight.intensity = places[0].visible ? 26 * lit : 0;
+    phoneLight.intensity = places[0].visible ? (0.45 + Math.sin(t * 2) * 0.05) * lit : 0;
   }
-  if (near(2, 0.44, 0.66) | (p > 0.8 && (places[2].visible = true))) {
+  const parkOn = near(1, 0.3, 0.56) && (!(q > 0.33 && q < 0.497) || p > 0.8);
+  places[1].visible = parkOn;
+  if (parkOn) {
+    // 8:00 in the park. The host and three others are waiting; the guest walks up; a wave, a high five; then they run.
+    const go = smooth(0.6, 0.64, q);
+    runAngle = go > 0 ? runAngle + dt * 0.5 * go : runAngle * Math.exp(-dt * 4);
+    runPivot.rotation.y = runAngle;
+    const m = clamp((q - 0.505) / 0.095), still = 1 - go;
+    const five = smooth(0.7, 0.8, m) * still, hop = Math.sin(smooth(0.8, 0.95, m) * Math.PI) * still;
+    runners.forEach((P, i) => {
+      poseRun(P, t, 9.5, go);
+      if (still <= 0) { P.g.position.copy(P.slot); P.g.rotation.y = P.face; return; }
+      if (i === 0) {                                 // the host turns to the newcomer, waves, then a high five
+        const wave = smooth(0.12, 0.3, m) * (1 - smooth(0.55, 0.68, m)) * still;
+        P.g.rotation.y = lerp(Math.PI / 2, P.face, go);
+        P.L.arm.rotation.z = (2.55 + Math.sin(t * 9) * 0.22) * wave;
+        P.L.arm.rotation.x = -2.45 * five;
+        P.L.elbow.rotation.x = lerp(P.L.elbow.rotation.x, -0.15, Math.max(five, wave));
+        P.head.rotation.x = -0.1 * still;
+        P.g.position.set(P.slot.x, hop * 0.12, P.slot.z);
+      } else if (i === 1) {                          // the guest walks in from the edge of the park
+        const come = smooth(0, 0.68, m), walking = (1 - smooth(0.6, 0.7, m)) * still;
+        P.g.position.set(lerp(RUN_R + 6.8, RUN_R + 0.98, come), hop * 0.12, lerp(-0.9, 0.05, come)).lerp(P.slot, go);
+        P.g.rotation.y = lerp(-Math.PI / 2, P.face - Math.PI * 2, go);
+        if (walking > 0) {
+          const ph = t * 5.2;
+          for (const [limb, off] of [[P.L, 0], [P.R, Math.PI]]) {
+            const sw = Math.sin(ph + off) * walking;
+            limb.leg.rotation.x = -sw * 0.5; limb.knee.rotation.x = (0.08 + 0.5 * (0.5 + 0.5 * Math.sin(ph + off - 1.3))) * walking;
+            limb.arm.rotation.x = sw * 0.45;
+          }
+          P.hips.position.y = 0.91 + Math.abs(Math.sin(ph)) * 0.025 * walking;
+        }
+        const wave = smooth(0.3, 0.45, m) * (1 - smooth(0.58, 0.68, m)) * still;
+        P.R.arm.rotation.z = -(2.5 + Math.sin(t * 9 + 1) * 0.22) * wave;
+        P.R.arm.rotation.x = lerp(P.R.arm.rotation.x, -2.45, five);
+        P.R.elbow.rotation.x = lerp(P.R.elbow.rotation.x, -0.15, Math.max(five, wave));
+      } else {                                       // the others stand about, watch, and one of them waves too
+        P.g.position.copy(P.slot); P.g.rotation.y = P.face;
+        P.head.rotation.y = -0.5 * still * smooth(0.1, 0.4, m);
+        if (i === 2) {
+          const wave = smooth(0.35, 0.5, m) * (1 - smooth(0.75, 0.9, m)) * still;
+          P.R.arm.rotation.z = -(2.5 + Math.sin(t * 8) * 0.25) * wave;
+          P.R.elbow.rotation.x = lerp(P.R.elbow.rotation.x, -0.2, wave);
+        }
+      }
+    });
+  }
+  if (near(2, 0.44, 0.66)) {
     for (const P of sitters) poseSit(P, t);
     for (const puff of steam) {
       const u = (t * 0.35 + puff.phase) % 1;
@@ -1048,14 +1352,16 @@ function frame() {
       puff.m.material.opacity = 0.45 * Math.sin(u * Math.PI);
     }
   }
-  if (near(3, 0.55, 0.76) | (p > 0.8 && (places[3].visible = true))) {
+  if (near(3, 0.55, 0.76)) {
     walkPivot.rotation.y = t * 0.2;
     for (const P of walkers) poseWalk(P, t);
     dog.legs.forEach((l, i) => { l.rotation.x = Math.sin(t * 11 + (i % 3) * 2.1) * 0.6; });
     dog.tail.rotation.set(-0.7, 0, Math.sin(t * 14) * 0.6);
     dog.position.y = Math.abs(Math.sin(t * 11)) * 0.03;
   }
-  if (near(4, 0.66, 2)) {
+  const dusk = near(4, 0.66, 2);
+  for (const flood of floods) flood.intensity = dusk ? 60 * lit : 0;
+  if (dusk) {
     // the ball goes round in a star: 0 → 2 → 4 → 1 → 3
     const beat = t * 0.9, n = Math.floor(beat), u = beat - n;
     const from = players[(n * 2) % 5], to = players[((n + 1) * 2) % 5];
@@ -1083,9 +1389,9 @@ function frame() {
 
   // camera
   town.updateMatrixWorld(true);
-  cameraAt(p);
+  cameraAt(q);
   // on a tall, narrow screen stand further back so the whole group fits
-  if (aspect < 0.9) camPos.sub(camLook).multiplyScalar(1 + 0.32 * smooth(0.33, 0.34, p) * (1 - smooth(0.79, 0.83, p))).add(camLook);
+  if (aspect < 0.9) camPos.sub(camLook).multiplyScalar(1 + 0.32 * smooth(0.33, 0.34, p) * (1 - smooth(0.79, 0.83, p)) + 0.22 * smooth(0.14, 0.18, p) * (1 - smooth(0.285, 0.31, p))).add(camLook);
   const pan = smooth(0.89, 0.97, p) * Math.sin(t * 0.11) * (MAP.pan || 0);
   camPos.x += pan; camLook.x += pan;
   // a little life in the hand that holds the camera
@@ -1097,7 +1403,8 @@ function frame() {
   // leave room for the words: push the scene to the right on wide screens, and up on tall ones
   const room = (1 - 0.5 * smooth(0.14, 0.18, p) * (1 - smooth(0.33, 0.34, p))) * (1 - smooth(0.81, 0.86, p));
   const end = smooth(0.88, 0.94, p);
-  const dx = aspect > 1.2 ? -0.11 * room : 0, dy = (aspect > 1.2 ? 0.02 : 0.11) * room + (aspect > 1.2 ? 0.13 : 0.16) * end;
+  const dx = aspect > 1.2 ? -0.11 * room : 0, dy = (aspect > 1.2 ? 0.02 : 0.13 + 0.07 * (1 - smooth(0.05, 0.1, p))) * room + (aspect > 1.2 ? 0.13 : 0.16) * end
+    + (aspect > 1.2 ? 0 : 0.11 * smooth(0.14, 0.18, p) * (1 - smooth(0.3, 0.33, p)));
   camera.setViewOffset(W, H, dx * W, dy * H, W, H);
   camera.near = clamp(reach * 0.08, 0.01, 2);
   camera.updateProjectionMatrix();
@@ -1108,7 +1415,7 @@ function frame() {
   look.copy(camLook);
   sun.target.position.copy(look);
   sun.position.copy(look).addScaledVector(sunDir, 40);
-  sun.castShadow = p < 0.84;
+  renderer.shadowMap.autoUpdate = p < 0.87;      // nothing left to cast a shadow once only the map is in view
 
   // the world map
   const mapIn = smooth(0.815, 0.86, p);
@@ -1117,28 +1424,37 @@ function frame() {
     const out = smooth(0.83, 0.955, p);
     const reachNow = lerp(0, MAP.far, out);
     dots.material.uniforms.reach.value = reachNow + 26 * mapIn;
-    const size = Math.max(0.05, camera.position.length() * 0.0072);
+    // each pin is drawn about the same size on screen, whatever the device, and always faces the camera
+    const perPixel = (2 * camera.position.distanceTo(camLook) * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / H;
+    const narrow = aspect < 0.9;
+    const size = (narrow ? 33 : clamp(H * 0.046, 30, 46)) * perPixel;
+    dummy.quaternion.copy(camera.quaternion);
     pinSpots.forEach((spot, i) => {
-      const pop = i === 0 ? smooth(0.85, 0.885, p) : clamp((reachNow - spot.far) / 22);
+      const pop = narrow && !spot.phone ? 0 : spot.home ? smooth(0.85, 0.885, p) : clamp((reachNow - spot.far) / 22);
       const k = pop <= 0 ? 0 : backOut(pop) * size * spot.s;
       dummy.position.copy(spot.p);
-      dummy.position.y = pop > 0 ? Math.sin(t * 1.7 + spot.phase) * size * 0.12 + size * 0.12 : 0;
+      dummy.position.y = pop > 0 ? (0.5 + 0.5 * Math.sin(t * 1.7 + spot.phase)) * size * 0.1 : 0;
       dummy.scale.setScalar(Math.max(k, 0.0001));
-      dummy.rotation.y = t * 0.5 + spot.phase;
       dummy.updateMatrix();
       mapPins.setMatrixAt(i, dummy.matrix);
     });
     mapPins.instanceMatrix.needsUpdate = true;
-    mapPins.count = pinSpots.length;
-    glows.material.size = size * 8;
-    glows.material.opacity = out * 0.75;
-    glows.geometry.setDrawRange(0, Math.max(1, pinSpots.filter((sp) => sp.far < reachNow).length));
     const ring = (t * 0.5) % 1;
-    pulse.scale.setScalar(size * (1 + ring * 7));
+    pulse.scale.setScalar(size * 0.45 * (1 + ring * 5));
     pulse.material.opacity = smooth(0.87, 0.9, p) * (1 - ring) * 0.8;
   }
 
   renderer.render(scene, camera);
+  if (window.__tourStats) window.__tourStats = { calls: renderer.info.render.calls, tris: renderer.info.render.triangles, dpr };
+  // if the device can't keep up, draw fewer pixels rather than drop frames
+  // (an iPhone in Low Power Mode runs at 30 frames a second by design: that is not counted as slow)
+  slow = dt > 0.042 ? slow + 1 : Math.max(0, slow - 0.5);
+  if (slow > 24 && dpr > 1) {
+    slow = 0;
+    dpr = Math.max(1, dpr - 0.4);
+    renderer.setPixelRatio(dpr);
+    resize();
+  }
   if (!started) { started = true; root.classList.add('tour-ready'); }
   raf = requestAnimationFrame(frame);
 }
@@ -1147,18 +1463,19 @@ function kick() {
   if (!raf && visible && !document.hidden) { clock.update(); raf = requestAnimationFrame(frame); }
 }
 
-// pins sorted by distance, so the glow can be drawn for just the ones that have landed
-{
-  const order = pinSpots.map((s, i) => i).sort((a, b) => pinSpots[a].far - pinSpots[b].far);
-  const sorted = order.map((i) => pinSpots[i]);
-  pinSpots.splice(0, pinSpots.length, ...sorted);
-  glows.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pinSpots.flatMap((s) => [s.p.x, 0.05, s.p.z]), 3));
-}
-
 resize();
 readScroll();
 pNow = target;
 drawPhone(0, 0);
+// Build every material and send every texture to the graphics chip now, behind the fade-in,
+// so nothing stutters the first time a new place scrolls into view.
+world.visible = true;
+camera.position.set(0, 60, 120);
+camera.lookAt(0, 0, 0);
+setMood(0);
+renderer.compile(scene, camera);
+renderer.render(scene, camera);
+world.visible = false;
 if ('ResizeObserver' in window) new ResizeObserver(resize).observe(stage);
 else window.addEventListener('resize', resize);
 window.addEventListener('scroll', kick, { passive: true });
