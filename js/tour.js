@@ -37,7 +37,15 @@ const pick = (list) => list[Math.floor(rnd() * list.length)];
 /* ---------- Renderer ---------- */
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 const smallScreen = Math.min(window.innerWidth, window.innerHeight) < 700;
-let dpr = Math.min(window.devicePixelRatio || 1, 2);
+// Phones and tablets get a lighter version of the same scenes: a simpler surface model (no shine),
+// slightly fewer pixels, and shadows only from the people and the things that move.
+const touch = smallScreen || window.matchMedia('(pointer: coarse)').matches;
+let dpr = Math.min(window.devicePixelRatio || 1, touch ? 1.75 : 2);
+function surf(params) {
+  if (!touch) return new THREE.MeshStandardMaterial(params);
+  const { roughness, metalness, ...rest } = params;
+  return new THREE.MeshLambertMaterial(rest);
+}
 renderer.setPixelRatio(dpr);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.shadowMap.enabled = true;
@@ -83,7 +91,7 @@ const hemi = new THREE.HemisphereLight(0xd5dcff, 0x3a2a55, 0.6);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffffff, 1);
 sun.castShadow = true;
-sun.shadow.mapSize.set(smallScreen ? 1024 : 2048, smallScreen ? 1024 : 2048);
+sun.shadow.mapSize.set(touch ? 1024 : 2048, touch ? 1024 : 2048);
 Object.assign(sun.shadow.camera, { left: -13, right: 13, top: 13, bottom: -13, near: 1, far: 90 });
 sun.shadow.bias = -0.0006;
 sun.shadow.normalBias = 0.03;
@@ -125,7 +133,7 @@ function setMood(p) {
 const mats = new Map();
 const mat = (color, rough = 0.85, extra) => {
   const key = color + ':' + rough + (extra ? JSON.stringify(extra) : '');
-  if (!mats.has(key)) mats.set(key, new THREE.MeshStandardMaterial({ color, roughness: rough, ...extra }));
+  if (!mats.has(key)) mats.set(key, surf({ color, roughness: rough, ...extra }));
   return mats.get(key);
 };
 const G = {
@@ -168,7 +176,7 @@ const SPOT = [v(-62, 0, 0), v(-28, 0, -6), v(2, 0, 8), v(32, 0, -8), v(62, 0, 6)
 const at = (i, x, y, z) => v(SPOT[i].x + x, y, SPOT[i].z + z);
 const places = SPOT.map((c) => { const g = new THREE.Group(); g.position.copy(c); town.add(g); return g; });
 
-const ground = mesh(new THREE.CircleGeometry(260, 64), new THREE.MeshStandardMaterial({ color: 0x4f8f5c, roughness: 1, transparent: true }), town, [0, 0, 0], 1, [-Math.PI / 2, 0, 0]);
+const ground = mesh(new THREE.CircleGeometry(260, 64), surf({ color: 0x4f8f5c, roughness: 1, transparent: true }), town, [0, 0, 0], 1, [-Math.PI / 2, 0, 0]);
 ground.castShadow = false;
 
 function tree(parent, x, z, s = 1, colors = [0x3f8f5a, 0x4fa368, 0x2f7a52]) {
@@ -262,6 +270,11 @@ function person(o = {}) {
     return { arm, elbow, hand, leg, knee };
   };
   const P = { g, hips, head, L: limb(1), R: limb(-1), phase: rr(0, 6), s: o.h ?? rr(0.9, 1.02) };
+  // on a phone only the body and legs throw a shadow: the small parts cost a draw each and are barely seen
+  if (touch) {
+    const big = [capsule(0.17, 0.34), capsule(0.078, 0.26), capsule(0.06, 0.26)];
+    g.traverse((m) => { if (m.isMesh) m.castShadow = big.includes(m.geometry); });
+  }
   g.scale.setScalar(P.s);
   people.push(P);
   return P;
@@ -325,7 +338,7 @@ const pinGeo = (segments) => {
   return g;
 };
 const bigPinGeo = pinGeo(28);
-const bigPinMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, emissive: 0x7c2fd0, emissiveIntensity: 0.55 });
+const bigPinMat = surf({ vertexColors: true, roughness: 0.3, emissive: 0x7c2fd0, emissiveIntensity: 0.55 });
 const badge = (emoji) => canvasTex(256, 256, (g) => {
   g.fillStyle = '#fff';
   g.beginPath(); g.arc(128, 128, 120, 0, 7); g.fill();
@@ -412,7 +425,7 @@ const PHONE = { pos: new V3(), n: new V3() };
     for (let i = 0; i < d.data.length; i += 4) if (d.data[i] < 150) { d.data[i] = d.data[i + 1] = d.data[i + 2] = 0; }
     g.putImageData(d, 0, 0);
   });
-  const block = new THREE.MeshStandardMaterial({ map: face, emissive: 0xffffff, emissiveMap: lit, emissiveIntensity: 0.9, roughness: 0.9 });
+  const block = surf({ map: face, emissive: 0xffffff, emissiveMap: lit, emissiveIntensity: 0.9, roughness: 0.9 });
   for (let i = 0; i < 13; i++) {
     const a = Math.PI * (1.08 + (i / 12) * 0.84), r = rr(15, 22), h = rr(5, 13), w = rr(3.2, 5);
     mesh(G.box, block, p, [Math.cos(a) * r, h / 2, Math.sin(a) * r], [w, h, w], [0, -a + Math.PI / 2 + rr(-0.2, 0.2), 0]);
@@ -505,13 +518,13 @@ const steam = [];
   mesh(G.box, mat(0x33294f, 0.3), cafe, [-1.6, 1.5, 1.21], [2.6, 1.7, 0.05]);
   mesh(G.box, mat(0x5b3a2a), cafe, [1.9, 1.1, 1.21], [1.1, 2.2, 0.06]);
   const stripes = canvasTex(128, 32, (g, w, h) => { for (let i = 0; i < 8; i++) { g.fillStyle = i % 2 ? '#ffffff' : '#c026d3'; g.fillRect(i * 16, 0, 16, h); } });
-  mesh(G.box, new THREE.MeshStandardMaterial({ map: stripes, roughness: 0.9 }), cafe, [0, 2.75, 1.85], [6.6, 0.07, 1.5], [0.3, 0, 0]);
+  mesh(G.box, surf({ map: stripes, roughness: 0.9 }), cafe, [0, 2.75, 1.85], [6.6, 0.07, 1.5], [0.3, 0, 0]);
   const sign = canvasTex(256, 64, (g, w, h) => {
     g.fillStyle = '#7c3aed'; g.fillRect(0, 0, w, h);
     g.fillStyle = '#fff'; g.font = '700 40px "Open Sans",sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText('coffee ☕', w / 2, h / 2 + 2);
   });
-  mesh(G.box, new THREE.MeshStandardMaterial({ map: sign, roughness: 0.8 }), cafe, [0, 3.56, 1.36], [2.6, 0.3, 0.02]).castShadow = false;
+  mesh(G.box, surf({ map: sign, roughness: 0.8 }), cafe, [0, 3.56, 1.36], [2.6, 0.3, 0.02]).castShadow = false;
   p.add(cafe);
   // the table
   mesh(G.cyl, mat(0xffffff, 0.5), p, [0, 0.76, 0], [0.85, 0.05, 0.85]);
@@ -618,7 +631,7 @@ let ball;
     mesh(G.cyl, white, goal, [0, 0.8, -1.3], [0.05, 1.6, 0.05]);
     mesh(G.cyl, white, goal, [0, 0.8, 1.3], [0.05, 1.6, 0.05]);
     mesh(G.cyl, white, goal, [0, 1.6, 0], [0.05, 2.65, 0.05], [Math.PI / 2, 0, 0]);
-    mesh(G.box, new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.22, roughness: 1 }), goal, [s * 0.5, 0.8, 0], [0.9, 1.6, 2.6]).castShadow = false;
+    mesh(G.box, surf({ color: 0xffffff, transparent: true, opacity: 0.22, roughness: 1 }), goal, [s * 0.5, 0.8, 0], [0.9, 1.6, 2.6]).castShadow = false;
     p.add(goal);
     // floodlights
     const pole = new THREE.Group();
@@ -646,7 +659,7 @@ let ball;
     g.fillStyle = '#231a3a';
     for (const [x, y] of [[8, 8], [24, 22], [40, 8], [56, 22], [24, 2], [56, 2], [8, 28], [40, 28]]) { g.beginPath(); g.arc(x, y, 5, 0, 7); g.fill(); }
   });
-  ball = mesh(G.sphere, new THREE.MeshStandardMaterial({ map: ballTex, roughness: 0.5 }), p, [0, 0.16, 0], 0.16);
+  ball = mesh(G.sphere, surf({ map: ballTex, roughness: 0.5 }), p, [0, 0.16, 0], 0.16);
   ringOf(p, 22, 11.5, 15, tree);
   beacon(4, '⚽', 7);
 }
@@ -769,7 +782,7 @@ function playBedroom(q, t) {
   const night = smooth(0.44, 0.488, q);
   const mins = 21 * 60 + 14 + Math.round(616 * night);
   const text = `${String(Math.floor(mins / 60) % 24).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
-  if (text !== clockText && t - clockDrawn > 0.03) {
+  if (text !== clockText && t - clockDrawn > (touch ? 0.06 : 0.03)) {
     clockText = text; clockDrawn = t;
     drawClock(wallClockCtx, 512, 240, mins >= 24 * 60 ? 'SAT' : 'FRI', text);
     wallClockTex.needsUpdate = true;
@@ -797,7 +810,7 @@ function bake(place, moving) {
   const used = [];
   place.traverse((o) => {
     const m = o.material;
-    if (!o.isMesh || !o.castShadow || !m.isMeshStandardMaterial || m.map || m.transparent || m.vertexColors || m.metalness > 0) return;
+    if (!o.isMesh || !o.castShadow || !(m.isMeshStandardMaterial || m.isMeshLambertMaterial) || m.map || m.transparent || m.vertexColors || m.metalness > 0) return;
     for (let a = o; a && a !== place; a = a.parent) if (moving.includes(a)) return;
     const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
     g.applyMatrix4(local.multiplyMatrices(inverse, o.matrixWorld));
@@ -818,7 +831,7 @@ function bake(place, moving) {
     g.setAttribute('position', new THREE.Float32BufferAttribute(data.pos, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(data.nor, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(data.col, 3));
-    mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, flatShading: key === 'flat' }), place);
+    mesh(g, surf({ vertexColors: true, roughness: 0.85, flatShading: key === 'flat' }), place).castShadow = !touch;
   }
 }
 {
@@ -1187,7 +1200,7 @@ function setVar(el, name, value) {
 }
 function setWords(p, legacyP) {
   for (const c of caps) {
-    const o = smooth(c.from, c.from + 0.022, p) * (1 - smooth(c.to - 0.022, c.to, p));
+    const o = smooth(c.from, c.from + 0.03, p) * (1 - smooth(c.to - 0.03, c.to, p));
     const on = o > 0.01;
     setVar(c.el, '--o', o.toFixed(2));
     if (on !== c.on) { c.on = on; c.el.classList.toggle('is-on', on); }
@@ -1255,7 +1268,7 @@ function frame() {
   if (!visible || document.hidden) return;
   clock.update();
   const dt = Math.min(clock.getDelta(), 0.1), t = clock.getElapsed();
-  pNow += (target - pNow) * (1 - Math.exp(-dt * 5.5));
+  pNow += (target - pNow) * (1 - Math.exp(-dt * 6.5));
   if (Math.abs(target - pNow) < 0.00005) pNow = target;
   const q = pNow, p = oldClock(q);
 
@@ -1282,7 +1295,7 @@ function frame() {
     host.head.rotation.x = 0.32 + Math.sin(t * 0.8) * 0.02;
     // the form is filled in while the first words are up, the map and the people joining while the second are
     const ps = p < 0.215 ? 0.47 * clamp((p - 0.135) / 0.08) : 0.47 + 0.53 * clamp((p - 0.215) / 0.08);
-    const due = Math.abs(ps - lastPhone) > 0.0008 ? t - phoneDrawn > 0.03 : p < 0.34 && t - phoneDrawn > 0.25;
+    const due = Math.abs(ps - lastPhone) > 0.0008 ? t - phoneDrawn > (touch ? 0.05 : 0.03) : p < 0.34 && t - phoneDrawn > 0.25;
     if (due) { lastPhone = ps; phoneDrawn = t; drawPhone(ps, t); }
   }
   const lit = 1 - shrink;

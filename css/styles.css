@@ -121,7 +121,7 @@ ol, ul { padding: 0; list-style: none; }
 .can-3d .optin { display: inline-flex; margin-top: 18px; }
 
 /* ---------- The story: the 3D tour (html.tour) ---------- */
-.tour .story { height: 1500vh; background: var(--night); }
+.tour .story { height: 1000vh; background: var(--night); }
 .tour .stage {
   position: sticky; top: 0; height: 100vh; height: 100lvh; overflow: hidden;
   background: radial-gradient(120% 90% at 50% 100%, #3b1a78, #140f24 70%);
