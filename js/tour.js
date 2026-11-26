@@ -530,11 +530,11 @@ const PHONE = { pos: new V3(), n: new V3() };
   host.hips.position.y = 0.56;
   host.hips.rotation.x = 0.14;
   // both hands up in front of his chest, holding the phone, head bowed over it
-  host.L.arm.rotation.set(-0.35, -0.6, -0.12);
-  host.L.elbow.rotation.x = -1.9;
-  host.R.arm.rotation.set(-0.35, 0.6, 0.12);
-  host.R.elbow.rotation.x = -1.9;
-  host.head.rotation.set(0.42, 0, 0);
+  host.L.arm.rotation.set(-0.5, -0.55, -0.1);
+  host.L.elbow.rotation.x = -1.65;
+  host.R.arm.rotation.set(-0.5, 0.55, 0.1);
+  host.R.elbow.rotation.x = -1.65;
+  host.head.rotation.set(0.62, 0, 0);
   addBrows(host);
 
   // the carriage light, and the lights of the platforms we pass
@@ -547,12 +547,15 @@ const PHONE = { pos: new V3(), n: new V3() };
   const hand = host.L.hand.getWorldPosition(new V3()).add(host.R.hand.getWorldPosition(new V3())).multiplyScalar(0.5);
   const head = host.head.getWorldPosition(new V3());
   phone = new THREE.Group();
-  phone.position.copy(p.worldToLocal(hand.clone())).add(v(0, 0.13, 0.03));   // held by its lower edge
-  phone.lookAt(head.clone().add(v(0, 0.06, 0.12)));          // the screen faces his eyes
+  p.add(phone);                              // in the scene first, so it turns to face the right point
+  phone.position.copy(p.worldToLocal(hand.clone())).add(v(0, 0.1, 0.05));    // held by its lower edge
+  phone.up.set(0, 0, 1);                                    // its top edge points away from him
+  phone.lookAt(head.clone().add(v(0, 0.12, 0.08)));          // the screen faces his eyes
+  phone.rotateZ(0.8);                                       // turned a little in his hands, so it reads upright over his shoulder
   // the camera reads it from just over his right shoulder, so it looks along a slightly different line
   const overShoulder = head.clone().add(v(-0.46, 0.4, 0.04));
   phone.scale.setScalar(1.25);
-  mesh(new THREE.BoxGeometry(0.09, 0.19, 0.01), mat(0x16122a, 0.35), phone);
+  mesh(new THREE.BoxGeometry(0.09, 0.19, 0.01), mat(0xc026d3, 0.35), phone);     // a bright case, so you can see it from the front
   const c = document.createElement('canvas');
   c.width = 540; c.height = 1170;
   phoneCtx = c.getContext('2d');
@@ -563,7 +566,6 @@ const PHONE = { pos: new V3(), n: new V3() };
   const screen = mesh(new THREE.PlaneGeometry(0.082, 0.178), new THREE.MeshBasicMaterial({ map: phoneTex, toneMapped: false, fog: false }), phone, [0, 0, 0.0056]);
   screen.castShadow = false;
   phoneLight = new THREE.PointLight(0xb9a0ff, 0.5, 2.2, 2);
-  p.add(phone);
   train.attach(phone);                       // it goes where he goes
   phone.updateWorldMatrix(true, false);
   phone.getWorldPosition(PHONE.pos);
@@ -1421,7 +1423,7 @@ function frame() {
   places[0].visible = hostOn;
   if (hostOn) {
     host.hips.position.y = 0.56 + Math.sin(t * 1.6) * 0.004;
-    host.head.rotation.x = 0.42 + Math.sin(t * 0.8) * 0.02;
+    host.head.rotation.x = 0.62 + Math.sin(t * 0.8) * 0.02;
     // While we ride with him, the city slides past the windows. Once the camera has stepped out of the
     // window, the city keeps still and the train shoots off down the line, taking him with it.
     if (q < 0.302) {
