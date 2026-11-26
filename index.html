@@ -15,7 +15,7 @@
   <link rel="icon" href="images/icon.png">
   <link rel="apple-touch-icon" href="images/apple-icon.png">
   <link rel="preload" href="fonts/open-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="css/styles.css?v=6">
+  <link rel="stylesheet" href="css/styles.css?v=7">
   <script>
     /* The 3D tour runs only where the browser can draw it. Visitors who asked their device for less motion
        get the still page with a "See it in 3D" button instead. ?3d=0 switches it off, ?3d=1 forces it on. */
@@ -36,7 +36,7 @@
         }
       } catch (e) { return; }
       root.classList.add('tour');
-      ['js/vendor/three.module.min.js', 'js/land.js', 'js/tour.js?v=6'].forEach(function (href) {
+      ['js/vendor/three.module.min.js', 'js/land.js', 'js/tour.js?v=7'].forEach(function (href) {
         var link = document.createElement('link');
         link.rel = 'modulepreload'; link.href = href;
         document.head.appendChild(link);
@@ -87,26 +87,26 @@
 
           <article class="cap" data-from="0.095" data-to="0.195">
             <p class="cap__step"><b>1</b>Post a meetup</p>
-            <h2>Someone makes a plan.</h2>
-            <p>Tap <strong>Post</strong> and answer a few questions: what, where and when. That's it. A pin lands on the map.</p>
+            <h2>A packed train. Nobody to talk to.</h2>
+            <p>Friday night, on the way home from work. Surrounded by people, and lonely. So he posts a run for tomorrow: what, where, when. Done.</p>
           </article>
 
-          <article class="cap" data-from="0.215" data-to="0.295">
+          <article class="cap" data-from="0.205" data-to="0.275">
             <p class="cap__step"><b>📍</b>On the map</p>
-            <h2>The pin lands on the map.</h2>
-            <p>Anyone nearby can see it. No group chats, no small talk first. Nobody can message you.</p>
+            <h2>His run is now a pin on the map.</h2>
+            <p>Anyone nearby can see it and join. No group chats, no small talk first.</p>
           </article>
 
-          <article class="cap" data-from="0.34" data-to="0.385">
-            <p class="cap__step"><b>🛏️</b>Across town</p>
-            <h2>Someone else is having another night in.</h2>
-            <p>In bed, scrolling, feeling low. They'd love to meet people too. They just don't know where to start.</p>
+          <article class="cap" data-from="0.305" data-to="0.385">
+            <p class="cap__step"><b>🏙️</b>Across the city</p>
+            <h2>Up in a tower, another night in alone.</h2>
+            <p>In bed, scrolling, feeling low. He'd love to meet people too. But where do you start?</p>
           </article>
 
           <article class="cap" data-from="0.395" data-to="0.44">
             <p class="cap__step"><b>2</b>Tap I'm in</p>
-            <h2>Then a pin pops up nearby.</h2>
-            <p>A run, tomorrow morning, round the corner. One tap: <strong>I'm in</strong>.</p>
+            <h2>Then a run pops up nearby.</h2>
+            <p>Tomorrow, 8:00, round the corner. One tap: <strong>I'm in</strong>.</p>
           </article>
 
           <article class="cap" data-from="0.45" data-to="0.492">
@@ -117,13 +117,13 @@
 
           <article class="cap" data-from="0.52" data-to="0.6">
             <p class="cap__step"><b>3</b>Turn up</p>
-            <h2>Saturday, 8:00. Two strangers meet.</h2>
-            <p>A wave, a hello, a high five. Already easier than either of them thought.</p>
+            <h2>Saturday, 8:00. The two of them meet.</h2>
+            <p>A wave, a hello, a high five. No awkward chat first. Already easier than either of them thought.</p>
           </article>
 
           <article class="cap" data-from="0.685" data-to="0.775">
             <p class="cap__step"><b>🏃</b>The run</p>
-            <h2>And everyone else turned up too.</h2>
+            <h2>Three more turned up too.</h2>
             <p>A run that was a pin on a map last night is now five people, out of breath, laughing.</p>
           </article>
 
@@ -162,8 +162,8 @@
         <ol class="rail" aria-hidden="true">
           <li data-at="0">Hello</li>
           <li data-at="0.095">Post</li>
-          <li data-at="0.215">The pin</li>
-          <li data-at="0.34">Across town</li>
+          <li data-at="0.205">The pin</li>
+          <li data-at="0.305">Across town</li>
           <li data-at="0.395">I'm in</li>
           <li data-at="0.45">Overnight</li>
           <li data-at="0.52">They meet</li>
@@ -244,6 +244,6 @@
     </div>
   </footer>
 
-  <script src="js/main.js?v=6" defer></script>
+  <script src="js/main.js?v=7" defer></script>
 </body>
 </html>
