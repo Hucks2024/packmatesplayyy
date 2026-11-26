@@ -529,11 +529,12 @@ const PHONE = { pos: new V3(), n: new V3() };
   for (const limb of [host.L, host.R]) { limb.leg.rotation.x = -1.45; limb.knee.rotation.x = 1.4; }
   host.hips.position.y = 0.56;
   host.hips.rotation.x = 0.14;
-  host.L.arm.rotation.set(-0.62, 0, -0.12);
-  host.L.elbow.rotation.x = -1.25;
-  host.R.arm.rotation.set(-0.55, 0, 0.12);
-  host.R.elbow.rotation.x = -0.45;
-  host.head.rotation.set(0.42, 0.1, 0);
+  // both hands up in front of his chest, holding the phone, head bowed over it
+  host.L.arm.rotation.set(-0.35, -0.6, -0.12);
+  host.L.elbow.rotation.x = -1.9;
+  host.R.arm.rotation.set(-0.35, 0.6, 0.12);
+  host.R.elbow.rotation.x = -1.9;
+  host.head.rotation.set(0.42, 0, 0);
   addBrows(host);
 
   // the carriage light, and the lights of the platforms we pass
@@ -543,12 +544,13 @@ const PHONE = { pos: new V3(), n: new V3() };
 
   // the phone, in the host's hand, turned so someone looking over his shoulder can read it
   p.updateWorldMatrix(true, true);
-  const hand = host.L.hand.getWorldPosition(new V3());
+  const hand = host.L.hand.getWorldPosition(new V3()).add(host.R.hand.getWorldPosition(new V3())).multiplyScalar(0.5);
   const head = host.head.getWorldPosition(new V3());
   phone = new THREE.Group();
-  phone.position.copy(p.worldToLocal(hand.clone())).add(v(0, 0.12, 0.02));
-  phone.lookAt(head.clone().add(v(-0.3, 0.6, -0.12)));
-  phone.translateZ(0.04);
+  phone.position.copy(p.worldToLocal(hand.clone())).add(v(0, 0.13, 0.03));   // held by its lower edge
+  phone.lookAt(head.clone().add(v(0, 0.06, 0.12)));          // the screen faces his eyes
+  // the camera reads it from just over his right shoulder, so it looks along a slightly different line
+  const overShoulder = head.clone().add(v(-0.46, 0.4, 0.04));
   phone.scale.setScalar(1.25);
   mesh(new THREE.BoxGeometry(0.09, 0.19, 0.01), mat(0x16122a, 0.35), phone);
   const c = document.createElement('canvas');
@@ -565,7 +567,7 @@ const PHONE = { pos: new V3(), n: new V3() };
   train.attach(phone);                       // it goes where he goes
   phone.updateWorldMatrix(true, false);
   phone.getWorldPosition(PHONE.pos);
-  phone.getWorldDirection(PHONE.n);
+  PHONE.n.copy(overShoulder).sub(PHONE.pos).normalize();
   phoneLight.position.copy(PHONE.pos).addScaledVector(PHONE.n, 0.14);
   town.add(phoneLight);
   PHONE.light = phoneLight.position.clone();
