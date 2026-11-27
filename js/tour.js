@@ -9,7 +9,7 @@
    The people, places and pins are an illustration, not live data. */
 import * as THREE from './vendor/three.module.min.js';
 import { LAND } from './land.js';
-import { createMapUI } from './mapui.js?v=20';   // versioned with the page, so a cached old copy is never mixed in
+import { createMapUI } from './mapui.js?v=22';   // versioned with the page, so a cached old copy is never mixed in
 
 const root = document.documentElement;
 const story = document.querySelector('.story');
@@ -1042,7 +1042,7 @@ function bake(place, moving) {
 }
 
 /* ---------- The world map ---------- */
-const MAP = { lon0: -0.12, lat0: 51.5, far: 290 };
+const MAP = { lon0: -0.12, lat0: 51.5, far: 17 };       // far: how far (km) the London pins spread from Hyde Park
 const toMap = (lat, lon) => v(lon - MAP.lon0, 0, -(lat - MAP.lat0));
 const isLand = (lat, lon) => {
   const r = Math.floor((LAND.lat0 - lat) / LAND.step), c = Math.floor((lon + 180) / LAND.step);
@@ -1100,27 +1100,92 @@ const CITIES = [
   [35.68, 139.69], [34.69, 135.5], [25.03, 121.57], [43.24, 76.89], [41.3, 69.24],
   [-33.87, 151.21], [-37.81, 144.96], [-27.47, 153.03], [-31.95, 115.86], [-36.85, 174.76], [-41.29, 174.78], [21.31, -157.86],
 ];
-// One pin per city, then more on open land, none closer than a few degrees to another, so they
-// are spread over the whole map instead of piled up on Europe.
-const pinSpots = [];
-const GAP = 8.5;
-const roomFor = (p) => pinSpots.every((s) => Math.hypot(s.p.x - p.x, s.p.z - p.z) > GAP);
-CITIES.forEach(([lat, lon], i) => {
-  const p = toMap(lat, lon);
-  if (i === 0 || roomFor(p)) pinSpots.push({ p, s: i === 0 ? 1.35 : rr(0.9, 1.1), home: i === 0 });
+// The last scene is London. At the end of the tour 1 unit is 1 km, with Hyde Park (where the park scenes
+// shrink to) at 0, 0. A night map of the city is drawn here, with the Thames, the parks and some areas named.
+const LDN = { lon0: -0.165, lat0: 51.507, cx: 2.5, size: 40 };
+const ll = (lat, lon) => v((lon - LDN.lon0) * 69.3, 0, -(lat - LDN.lat0) * 111.2);
+const THAMES = [
+  [51.43, -0.33], [51.452, -0.31], [51.468, -0.295], [51.483, -0.27], [51.49, -0.245], [51.486, -0.226], [51.473, -0.236],
+  [51.466, -0.215], [51.465, -0.19], [51.474, -0.17], [51.482, -0.148], [51.487, -0.13], [51.495, -0.123], [51.503, -0.121],
+  [51.509, -0.113], [51.51, -0.095], [51.507, -0.075], [51.503, -0.055], [51.507, -0.035], [51.5, -0.024], [51.488, -0.014],
+  [51.487, 0.0], [51.497, 0.006], [51.507, 0.008], [51.502, 0.03], [51.507, 0.06], [51.504, 0.09], [51.497, 0.13], [51.49, 0.17],
+].map(([lat, lon]) => ll(lat, lon));
+const nearThames = (p, d) => THAMES.some((a, i) => {
+  const b = THAMES[i + 1];
+  if (!b) return false;
+  const t = clamp(((p.x - a.x) * (b.x - a.x) + (p.z - a.z) * (b.z - a.z)) / ((b.x - a.x) ** 2 + (b.z - a.z) ** 2));
+  return Math.hypot(p.x - a.x - t * (b.x - a.x), p.z - a.z - t * (b.z - a.z)) < d;
 });
-for (let tries = 0; tries < 4000 && pinSpots.length < 150; tries++) {
-  const lat = rr(-50, 68), lon = rr(-170, 178);
-  if (!isLand(lat, lon) || !isLand(lat + 1.5, lon) || !isLand(lat, lon + 1.5)) continue;
-  const p = toMap(lat, lon);
-  if (roomFor(p)) pinSpots.push({ p, s: rr(0.75, 1) });
+const PARKS = [   // lat, lon, east-west and north-south half-size in km
+  [51.507, -0.172, 1.3, 0.5], [51.527, -0.154, 0.6, 0.55], [51.562, -0.164, 0.9, 0.8], [51.477, 0.0, 0.5, 0.45],
+  [51.536, -0.04, 0.7, 0.35], [51.479, -0.157, 0.5, 0.35], [51.461, -0.146, 0.5, 0.45], [51.443, -0.272, 1.9, 1.6],
+  [51.432, -0.233, 1.0, 0.9], [51.543, -0.016, 0.5, 0.8], [51.445, -0.072, 0.7, 0.5], [51.582, -0.11, 0.6, 0.45],
+  [51.459, 0.04, 0.8, 0.6], [51.555, 0.0, 0.9, 0.6],
+];
+const AREAS = [
+  ['Camden', 51.541, -0.143], ['Shoreditch', 51.526, -0.078], ['Brixton', 51.462, -0.111], ['Hackney', 51.548, -0.055],
+  ['Greenwich', 51.471, -0.0], ['Notting Hill', 51.513, -0.2], ['Soho', 51.514, -0.134], ['Canary Wharf', 51.505, -0.02],
+  ['Islington', 51.536, -0.103], ['Peckham', 51.472, -0.069], ['Stratford', 51.541, -0.003], ['Clapham', 51.455, -0.138],
+  ['Hammersmith', 51.494, -0.224], ['Wimbledon', 51.421, -0.206], ['Highgate', 51.572, -0.146], ['Battersea', 51.47, -0.17],
+];
+const londonTex = (() => {
+  const S = 2048, k = S / LDN.size, x0 = LDN.cx - LDN.size / 2, z0 = -LDN.size / 2;
+  const px = (p) => [(p.x - x0) * k, (p.z - z0) * k];
+  const t = canvasTex(S, S, (g) => {
+    g.fillStyle = '#1b1238'; g.fillRect(0, 0, S, S);
+    for (let i = 0; i < 26000; i++) {                       // the city's blocks, thicker in the middle
+      const r = Math.pow(rnd(), 0.7) * 19, a = rnd() * 7, x = LDN.cx + 1 + Math.cos(a) * r, z = Math.sin(a) * r * 0.9;
+      const [X, Y] = px(v(x, 0, z));
+      g.fillStyle = `rgba(${pick(['120,96,200', '140,110,220', '100,84,180'])},${(0.1 + 0.18 * (1 - r / 19)).toFixed(2)})`;
+      g.fillRect(X, Y, 6 + rnd() * 10, 5 + rnd() * 8);
+    }
+    g.strokeStyle = 'rgba(170,150,240,.22)'; g.lineCap = 'round';
+    const c = ll(51.507, -0.128);
+    g.lineWidth = 7;
+    for (let i = 0; i < 12; i++) {                           // the main roads out of the centre, and a ring road
+      const a = (i / 12) * Math.PI * 2 + 0.2;
+      g.beginPath(); g.moveTo(...px(c)); g.lineTo(...px(v(c.x + Math.cos(a) * 22, 0, c.z + Math.sin(a) * 22))); g.stroke();
+    }
+    g.beginPath(); g.ellipse(...px(c), 9.5 * k, 8 * k, 0, 0, 7); g.stroke();
+    g.fillStyle = '#244a3c';
+    for (const [lat, lon, w, h] of PARKS) { const [X, Y] = px(ll(lat, lon)); g.beginPath(); g.ellipse(X, Y, w * k, h * k, 0, 0, 7); g.fill(); }
+    const river = (width, color) => {
+      g.strokeStyle = color; g.lineWidth = width; g.lineJoin = 'round';
+      g.beginPath(); THAMES.forEach((p, i) => (i ? g.lineTo(...px(p)) : g.moveTo(...px(p)))); g.stroke();
+    };
+    river(34, 'rgba(120,100,230,.35)'); river(18, '#5b48c2'); river(6, '#8c7ae8');
+    g.font = '600 30px "Open Sans",system-ui,sans-serif'; g.textAlign = 'center'; g.fillStyle = 'rgba(210,198,255,.55)';
+    for (const [name, lat, lon] of AREAS) g.fillText(name, ...px(ll(lat, lon)));
+    g.globalCompositeOperation = 'destination-in';           // fade out at the edges, so the map has no hard square
+    const fade = g.createRadialGradient(S / 2, S / 2, S * 0.3, S / 2, S / 2, S * 0.5);
+    fade.addColorStop(0, '#000'); fade.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = fade; g.fillRect(0, 0, S, S);
+  });
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+})();
+const londonMap = new THREE.Mesh(new THREE.PlaneGeometry(LDN.size, LDN.size), new THREE.MeshBasicMaterial({ map: londonTex, transparent: true, depthWrite: false, toneMapped: false, fog: false }));
+londonMap.rotation.x = -Math.PI / 2;
+londonMap.position.set(LDN.cx, -0.02, 0);
+londonMap.renderOrder = -1;
+world.add(londonMap);
+dots.visible = false;                                         // the dotted world map is not used any more
+
+// The pins: the run & coffee in Hyde Park, and meetups all over London, a little apart from each other
+const pinSpots = [{ p: v(0, 0, 0), s: 1.35, home: true }];
+const GAP = 1.15;
+const roomFor = (p) => pinSpots.every((s) => Math.hypot(s.p.x - p.x, s.p.z - p.z) > GAP);
+for (let tries = 0; tries < 8000 && pinSpots.length < 150; tries++) {
+  const a = rr(0, Math.PI * 2), r = Math.sqrt(rnd()) * 15;
+  const p = v(LDN.cx + Math.cos(a) * r * 1.15, 0, Math.sin(a) * r * 0.95);
+  if (!nearThames(p, 0.5) && roomFor(p)) pinSpots.push({ p, s: rr(0.82, 1.05) });
 }
 pinSpots.forEach((s) => { s.far = Math.hypot(s.p.x, s.p.z); s.phase = rr(0, 6.28); });
-// a phone shows the map much smaller, so it gets a thinner set: pins at least twice as far apart
+// a phone shows the map smaller, so it gets a thinner set
 {
   const kept = [];
   for (const s of pinSpots) {
-    s.phone = kept.every((k) => Math.hypot(k.p.x - s.p.x, k.p.z - s.p.z) > GAP * 1.9);
+    s.phone = kept.every((k) => Math.hypot(k.p.x - s.p.x, k.p.z - s.p.z) > GAP * 1.45);
     if (s.phone) kept.push(s);
   }
 }
@@ -1130,7 +1195,7 @@ pinSpots.sort((a, b) => a.p.z - b.p.z);            // far ones first, so nearer 
 const PIN_EMOJI = ['🏃', '☕', '🏃☕️', '🚶', '⚽', '🧘', '🚶☕', '🎲', '🚴', '🏊', '🎾', '🍕', '🚴🍕'];      // some are two things in a row, like the app
 const pinCounts = PIN_EMOJI.map(() => 0);
 pinSpots.forEach((spot, i) => {
-  spot.k = spot.home ? 0 : (i * 7) % PIN_EMOJI.length;
+  spot.k = spot.home ? PIN_EMOJI.indexOf('🏃☕️') : (i * 7) % PIN_EMOJI.length;
   spot.j = pinCounts[spot.k]++;
 });
 const pinPlane = new THREE.PlaneGeometry(0.75, 1).translate(0, 0.5 - 14 / 256, 0);
@@ -1319,8 +1384,8 @@ function drawPhone(s, t) {
    A new list is a cut: the jump through the phone, and the one out of the bedroom window, happen behind a wash of colour.
    Times here are story time (see QMAX below), not the 0..1 of the scroll. */
 const pc = (d, side = 0, up = 0) => PHONE.pos.clone().addScaledVector(PHONE.n, d).add(v(side, up, 0));
-const mapEnd = { pos: v(0, 200, 150), look: v(8, 0, 36) };
-const mapEnd2 = { pos: v(0, 220, 160), look: v(8, 0, 36) };
+const mapEnd = { pos: v(0, 20, 15), look: v(2.2, 0, 1.2) };          // all of London (set in resize)
+const mapEnd2 = { pos: v(0, 22, 16), look: v(2.2, 0, 1.2) };
 const tr = (x, y, z) => at(0, x, 8 + y, z);                      // inside the train
 const SHOTS = [
   [
@@ -1365,8 +1430,7 @@ const SHOTS = [
     { p: 1.015, pos: v(46, 8.5, 14), look: at(4, 0, 2, 0) },
     { p: 1.045, pos: at(4, 5.2, 2.0, 6.6), look: at(4, 0, 1.0, 0) },
     { p: 1.090, pos: at(4, -4.8, 3.0, 6.4), look: at(4, 0, 1.0, 0) },
-    { p: 1.125, pos: v(34, 60, 62), look: v(22, 0, 0) },
-    { p: 1.170, pos: v(4, 120, 96), look: v(4, 0, 22) },
+    { p: 1.14, pos: v(30, 34, 46), look: v(14, 0, 2) },          // up over the park as it shrinks into London
     { p: 1.230, ...mapEnd },
     { p: 1.300, ...mapEnd2 },
   ],
@@ -1437,12 +1501,12 @@ function setWords(p, legacyP) {
     lastRail = now;
     rail.forEach((r, i) => { r.el.classList.toggle('is-now', i === now); r.el.classList.toggle('is-done', i < now); });
   }
-  setVar(stage, '--rail', (1 - smooth(0.9, 0.94, legacyP)).toFixed(2));
+  setVar(stage, '--rail', (1 - smooth(0.975, 0.99, p)).toFixed(2));
   // the one cut: out of the bedroom window into the morning, behind a warm wash
   const o = 0;                                   // no colour washes in this version
   setVar(wash, '--o', o.toFixed(2));
   if ((o > 0.005) !== washOn) { washOn = o > 0.005; wash.classList.toggle('is-on', washOn); }
-  if ((p > 0.9) !== washDawn) { washDawn = p > 0.9; if (postPill) postPill.classList.toggle('is-lit', washDawn); }   // scene 6: the Post button lights up
+  if ((p > 0.86) !== washDawn) { washDawn = p > 0.86; if (postPill) postPill.classList.toggle('is-lit', washDawn); }   // scene 6: the Post button lights up
 }
 
 /* ---------- Size ---------- */
@@ -1461,9 +1525,9 @@ function resize() {
   camera.updateProjectionMatrix();
   // the last frame: as much of the map as fits
   const half = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * aspect;
-  const wide = aspect > 1.2 ? 330 : aspect > 0.75 ? 240 : 150;
+  const wide = aspect > 1.2 ? 31 : aspect > 0.75 ? 25 : 17;          // km of London across the screen
   const dist = wide / 2 / half;
-  MAP.pan = Math.max(6, (330 - wide) / 2);
+  MAP.pan = 0.8;
   MAP.dist = dist;
   mapEnd.pos.set(mapEnd.look.x, dist * 0.84, mapEnd.look.z + dist * 0.54);
   mapEnd2.pos.set(mapEnd.look.x, dist * 0.92, mapEnd.look.z + dist * 0.5);
@@ -1479,7 +1543,7 @@ const clock = new THREE.Timer();
 const QMAX = 1.3;
 // The script: the scroll (u, 0..1) plays the map scenes in the page (u < 0.55), then these parts of the 3D story:
 // the five running (q 0.62 – 0.775), coffee, a walk and a kickabout (– 1.09), and the pull back to the world map.
-const SEG = [[0, 0.62], [0.5, 0.62], [0.62, 0.775], [0.8, 1.09], [1, 1.3]];
+const SEG = [[0, 0.62], [0.5, 0.62], [0.62, 0.775], [0.8, 1.09], [0.88, 1.3], [1, 1.3]];   // the doors play over the end
 function storyQ(u) {
   for (let i = SEG.length - 2; i >= 0; i--) {
     const [u0, q0] = SEG[i], [u1, q1] = SEG[i + 1];
@@ -1514,7 +1578,7 @@ function frame() {
   setWords(u, p);
   mapui.update(u);
   // while the map covers the screen there is nothing 3D to draw
-  if (u < 0.53 && started) { raf = requestAnimationFrame(frame); return; }
+  if ((u < 0.53 || u > 0.93) && started) { raf = requestAnimationFrame(frame); return; }
 
   // the town shrinks to a point on the map as the camera leaves
   const shrink = smooth(0.835, 0.885, p);
@@ -1697,10 +1761,11 @@ function frame() {
     // each pin is drawn about the same size on screen, whatever the device, and always faces the camera
     const perPixel = (2 * camera.position.distanceTo(camLook) * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / H;
     const narrow = aspect < 0.9;
-    const size = (narrow ? 33 : clamp(H * 0.046, 30, 46)) * perPixel;
+    const size = (narrow ? 30 : clamp(H * 0.044, 30, 44)) * perPixel;
+    londonMap.material.opacity = mapIn;
     dummy.quaternion.copy(camera.quaternion);
     pinSpots.forEach((spot, i) => {
-      const pop = narrow && !spot.phone ? 0 : spot.home ? smooth(0.85, 0.885, p) : clamp((reachNow - spot.far) / 22);
+      const pop = narrow && !spot.phone ? 0 : spot.home ? smooth(0.85, 0.885, p) : clamp((reachNow - spot.far) / 1.6);
       const k = pop <= 0 ? 0 : backOut(pop) * size * spot.s;
       dummy.position.copy(spot.p);
       dummy.position.y = pop > 0 ? (0.5 + 0.5 * Math.sin(t * 1.7 + spot.phase)) * size * 0.1 : 0;

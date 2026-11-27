@@ -15,7 +15,7 @@
   <link rel="icon" href="images/icon.png">
   <link rel="apple-touch-icon" href="images/apple-icon.png">
   <link rel="preload" href="fonts/open-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="css/styles.css?v=20">
+  <link rel="stylesheet" href="css/styles.css?v=22">
   <script>
     /* The 3D tour runs only where the browser can draw it. Visitors who asked their device for less motion
        get the still page with a "See it in 3D" button instead. ?3d=0 switches it off, ?3d=1 forces it on. */
@@ -36,7 +36,7 @@
         }
       } catch (e) { return; }
       root.classList.add('tour');
-      ['js/vendor/three.module.min.js', 'js/land.js', 'js/tour.js?v=20'].forEach(function (href) {
+      ['js/vendor/three.module.min.js', 'js/land.js', 'js/tour.js?v=22'].forEach(function (href) {
         var link = document.createElement('link');
         link.rel = 'modulepreload'; link.href = href;
         document.head.appendChild(link);
@@ -113,10 +113,16 @@
             <p>Coffee, walks, a kickabout. If you'd do it with friends, it's here.</p>
           </article>
 
-          <article class="cap cap--end" data-from="0.93" data-to="3">
+          <article class="cap cap--end" data-from="0.85" data-to="0.915">
+            <p class="cap__kicker">📍 London and beyond.</p>
             <h2>Been to one?<br>Post your own.</h2>
             <p class="post-line"><span class="post-pill">＋ Post</span></p>
             <p>Find a meetup. Tap I'm in. Turn up.</p>
+          </article>
+
+          <article class="cap cap--doors" data-from="0.962" data-to="3">
+            <h2>🚪 Open more doors.<br>Meet more people.</h2>
+            <p>Packmates is free.</p>
             <div class="cap__cta">
               <a class="store" href="https://apps.apple.com/app/packmates/id6822292523"><img src="images/app-store.svg" alt="Download on the App Store" width="135" height="40"></a>
               <a class="btn btn--white" href="https://www.packmates.live">Join free</a>
@@ -131,7 +137,8 @@
           <li data-at="0.455">Turn up</li>
           <li data-at="0.625">Run &amp; coffee</li>
           <li data-at="0.695">More</li>
-          <li data-at="0.93">Your turn</li>
+          <li data-at="0.85">Your turn</li>
+          <li data-at="0.92">Open doors</li>
         </ol>
         <a class="stage__skip" href="#how">Skip the tour ↓</a>
       </div>
@@ -204,6 +211,6 @@
     </div>
   </footer>
 
-  <script src="js/main.js?v=20" defer></script>
+  <script src="js/main.js?v=22" defer></script>
 </body>
 </html>
