@@ -103,8 +103,8 @@ export function createMapUI(stage) {
     </div>
     <div class="mapui__card">
       <div class="mapui__grab"></div>
-      <p class="mapui__title">🏃 Saturday run</p>
-      <p class="mapui__meta">8:00 · The Park</p>
+      <p class="mapui__title">🏃☕ Run, then coffee</p>
+      <p class="mapui__meta">Saturday 8:00 · The Park</p>
       <div class="mapui__going"><div class="mapui__faces">${FACES.map((f) => `<span class="mapui__face">${faceSVG(f)}</span>`).join('')}</div><span class="mapui__count">Be the first</span></div>
       <div class="mapui__btn"><span class="mapui__btn-in">I'm in</span><span class="mapui__btn-done">You're in ✓</span></div>
       <svg class="mapui__thumb" viewBox="0 0 120 240" aria-hidden="true">
@@ -152,7 +152,7 @@ export function createMapUI(stage) {
     p.className = 'mapui__pin' + (s.target ? ' is-target' : '');
     p.style.left = `${s.x}px`;
     p.style.top = `${s.y}px`;
-    p.innerHTML = (s.target ? '<span class="mapui__ring"></span>' : '') + pinSVG('', s.target ? '🏃' : ACTIVITIES[i % ACTIVITIES.length]);
+    p.innerHTML = (s.target ? '<span class="mapui__ring"></span>' : '') + pinSVG('', s.target ? '🏃☕' : ACTIVITIES[i % ACTIVITIES.length]);
     pinBox.appendChild(p);
     return { el: p, at: 0.015 + (i / spots.length) * 0.1, last: '' };
   });
