@@ -22,20 +22,23 @@ const rnd = () => {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 };
 
-// The Packmates pin: a rounded teardrop in the brand gradient, with three people in white.
+// The Packmates pin: a rounded teardrop in the brand gradient. Like the app, a meetup's pin shows its
+// activity as an emoji in a white circle; without one it shows the three people of the logo.
 let pinCount = 0;
-export function pinSVG(cls = '') {
+export function pinSVG(cls = '', emoji = '') {
   const id = `pg${pinCount++}`;
   return `<svg class="${cls}" viewBox="0 0 100 130" aria-hidden="true">
     <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#8b5cf6"/><stop offset=".55" stop-color="#c026d3"/><stop offset="1" stop-color="#ec4899"/>
     </linearGradient></defs>
     <path d="M50 127C25 98 6.6 72 6.6 46 6.6 15 25 3 50 3s43.4 12 43.4 43c0 26-18.4 52-43.4 81z" fill="url(#${id})"/>
-    <g fill="#fff">
+    ${emoji ? `<circle cx="50" cy="46" r="31" fill="#fff"/>
+    <text x="50" y="47" text-anchor="middle" dominant-baseline="central" font-size="36"
+      font-family="'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif">${emoji}</text>` : `<g fill="#fff">
       <circle cx="25.2" cy="53" r="4.4"/><rect x="17.3" y="60" width="15.9" height="18" rx="7"/>
       <circle cx="74.8" cy="53" r="4.4"/><rect x="66.9" y="60" width="15.9" height="18" rx="7"/>
       <circle cx="50" cy="44.5" r="5.8"/><rect x="39.8" y="53.5" width="20.4" height="23" rx="9"/>
-    </g>
+    </g>`}
   </svg>`;
 }
 
@@ -141,12 +144,13 @@ export function createMapUI(stage) {
   }
   spots.sort((a, b) => Math.hypot(a.x - 800, a.y - 780) - Math.hypot(b.x - 800, b.y - 780));
   const pinBox = el.querySelector('.mapui__pins');
+  const ACTIVITIES = ['☕', '🚶', '⚽', '🧘', '🎲', '🚴', '🏊', '🎾', '🍕', '🎨', '🥾', '🏀'];
   const pins = spots.map((s, i) => {
     const p = document.createElement('div');
     p.className = 'mapui__pin' + (s.target ? ' is-target' : '');
     p.style.left = `${s.x}px`;
     p.style.top = `${s.y}px`;
-    p.innerHTML = (s.target ? '<span class="mapui__ring"></span>' : '') + pinSVG();
+    p.innerHTML = (s.target ? '<span class="mapui__ring"></span>' : '') + pinSVG('', s.target ? '🏃' : ACTIVITIES[i % ACTIVITIES.length]);
     pinBox.appendChild(p);
     return { el: p, at: 0.015 + (i / spots.length) * 0.1, last: '' };
   });
