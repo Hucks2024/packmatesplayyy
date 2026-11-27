@@ -1453,7 +1453,8 @@ function frame() {
   // only the places near the story are drawn and moved
   const near = (i, a, b) => { const on = !gone && ((p > a && p < b) || p > 0.8); places[i].visible = on; return on; };
   const middle = q > 0.5 && q < 0.64;          // the meeting: the city is out of sight
-  const hostOn = near(0, -1, 0.36) && (!middle || p > 0.8);
+  const hostOn = false;                          // the train and its city are not in this version of the story
+  near(0, -1, -1);
   places[0].visible = hostOn;
   if (hostOn) {
     host.hips.position.y = 0.56 + Math.sin(t * 1.6) * 0.004;

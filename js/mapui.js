@@ -157,6 +157,17 @@ export function createMapUI(stage) {
   });
 
   let W = 1, H = 1, base = 1, last = {};
+  // On a phone the words sit at the top and the card at the bottom; the pin and the clock go in the space
+  // between, measured, so nothing overlaps on a short screen.
+  const gap = { top: 0, bottom: 1, measured: false };
+  function measure() {
+    const caps = [...stage.querySelectorAll('.cap--top')];
+    gap.top = Math.max(80, ...caps.map((c) => c.offsetTop + c.offsetHeight)) + 14;
+    gap.bottom = card.offsetTop - 14;
+    gap.measured = true;
+    last = {};
+  }
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { gap.measured = false; });
   const set = (node, key, prop, value) => {
     if (last[key] === value) return;
     last[key] = value;
@@ -171,6 +182,7 @@ export function createMapUI(stage) {
   function resize(w, h) {
     W = w; H = h;
     base = Math.max(W, H) * 1.12 / 1600;
+    gap.measured = false;
     last = {};
   }
 
@@ -185,13 +197,17 @@ export function createMapUI(stage) {
     const which = u < 0.69 ? 0 : u < 0.75 ? 1 : 2;
     emojis.forEach((e, i) => toggle(e, `e${i}`, 'is-on', i === which));
     if (cover <= 0.001) return;
+    const narrow = W / H < 0.9;
+    if (narrow && !gap.measured) measure();
+    const room = Math.max(60, gap.bottom - gap.top);
 
     // 1 and 2: the whole map, then in to the run's pin
-    const narrow = W / H < 0.9;
     const z = smooth(0.13, 0.22, u);
     const k = base * lerp(1, narrow ? 2.4 : 2.1, z);
     const focusX = lerp(800, TARGET.x, z), focusY = lerp(800, TARGET.y, z);
-    const sx = lerp(0.5, narrow ? 0.5 : 0.4, z) * W, sy = lerp(0.5, narrow ? 0.5 : 0.42, z) * H;
+    // the pin's point lands low in the free space, so the whole pin sits between the words and the card
+    const pinY = narrow ? Math.min(gap.bottom - 6, gap.top + room * 0.5 + 60) : 0.42 * H;
+    const sx = lerp(0.5, narrow ? 0.5 : 0.4, z) * W, sy = lerp(0.5 * H, pinY, z);
     set(plane, 'p', 'transform', `translate3d(${(sx - focusX * k).toFixed(1)}px, ${(sy - focusY * k).toFixed(1)}px, 0) scale(${k.toFixed(4)})`);
     const grow = 1 / Math.pow(k / base, 0.65);             // pins don't grow as much as the map does
     pins.forEach((p, i) => {
@@ -225,7 +241,9 @@ export function createMapUI(stage) {
     set(night, 'n', 'opacity', (dark * 0.72).toFixed(3));
     const cl = smooth(0.455, 0.47, u) * (1 - smooth(0.535, 0.55, u));
     set(clock, 'cl', 'opacity', cl.toFixed(3));
-    set(clock, 'cs', 'transform', `translate(-50%, -50%) scale(${(0.7 + 0.3 * backOut(clamp((u - 0.455) / 0.02))).toFixed(3)})`);
+    const fit = narrow ? clamp((room - 8) / (clock.offsetHeight || 200), 0.38, 1) : 1;
+    if (narrow) set(clock, 'ct', 'top', `${Math.round(gap.top + room / 2)}px`);
+    set(clock, 'cs', 'transform', `translate(-50%, -50%) scale(${(fit * (0.7 + 0.3 * backOut(clamp((u - 0.455) / 0.02)))).toFixed(3)})`);
     const mins = 21 * 60 + Math.round(660 * smooth(0.47, 0.525, u));
     minHand.setAttribute('transform', `rotate(${(mins % 60) * 6} 60 60)`);
     hourHand.setAttribute('transform', `rotate(${((mins / 60) % 12) * 30} 60 60)`);
