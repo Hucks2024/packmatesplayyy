@@ -33,7 +33,7 @@ export function pinSVG(cls = '', emoji = '') {
     </linearGradient></defs>
     <path d="M50 127C25 98 6.6 72 6.6 46 6.6 15 25 3 50 3s43.4 12 43.4 43c0 26-18.4 52-43.4 81z" fill="url(#${id})"/>
     ${emoji ? `<circle cx="50" cy="46" r="31" fill="#fff"/>
-    <text x="50" y="47" text-anchor="middle" dominant-baseline="central" font-size="36"
+    <text x="50" y="47" text-anchor="middle" dominant-baseline="central" font-size="${[...emoji].length > 1 ? 23 : 36}"
       font-family="'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif">${emoji}</text>` : `<g fill="#fff">
       <circle cx="25.2" cy="53" r="4.4"/><rect x="17.3" y="60" width="15.9" height="18" rx="7"/>
       <circle cx="74.8" cy="53" r="4.4"/><rect x="66.9" y="60" width="15.9" height="18" rx="7"/>
@@ -145,7 +145,8 @@ export function createMapUI(stage) {
   }
   spots.sort((a, b) => Math.hypot(a.x - 800, a.y - 780) - Math.hypot(b.x - 800, b.y - 780));
   const pinBox = el.querySelector('.mapui__pins');
-  const ACTIVITIES = ['☕', '🚶', '⚽', '🧘', '🎲', '🚴', '🏊', '🎾', '🍕', '🎨', '🥾', '🏀'];
+  // like the app, some meetups are two things in a row: a run then a coffee, a walk then lunch
+  const ACTIVITIES = ['☕', '🏃☕', '🚶', '⚽', '🧘', '🚶☕', '🎲', '🚴', '🏊', '🏃🍳', '🎾', '🍕', '🧘☕', '🎨', '🥾', '🚴🍕', '🏀'];
   const pins = spots.map((s, i) => {
     const p = document.createElement('div');
     p.className = 'mapui__pin' + (s.target ? ' is-target' : '');

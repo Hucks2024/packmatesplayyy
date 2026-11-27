@@ -1053,7 +1053,7 @@ pinSpots.forEach((s) => { s.far = Math.hypot(s.p.x, s.p.z); s.phase = rr(0, 6.28
 pinSpots.sort((a, b) => a.p.z - b.p.z);            // far ones first, so nearer pins are drawn over them
 // The pin itself is the app's own: a flat picture that always faces the camera, standing on its point.
 // Like the app, each pin shows its meetup's activity: one set of pins per emoji.
-const PIN_EMOJI = ['🏃', '☕', '🚶', '⚽', '🧘', '🎲', '🚴', '🏊', '🎾', '🍕'];
+const PIN_EMOJI = ['🏃', '☕', '🏃☕', '🚶', '⚽', '🧘', '🚶☕', '🎲', '🚴', '🏊', '🎾', '🍕', '🚴🍕'];      // some are two things in a row, like the app
 const pinCounts = PIN_EMOJI.map(() => 0);
 pinSpots.forEach((spot, i) => {
   spot.k = spot.home ? 0 : (i * 7) % PIN_EMOJI.length;
@@ -1068,7 +1068,7 @@ const pinMeshes = PIN_EMOJI.map((emoji, k) => {
     g.shadowColor = 'transparent';
     g.fillStyle = '#fff';
     g.beginPath(); g.arc(x, y - s * 0.655, s * 0.255, 0, 7); g.fill();
-    g.font = `${Math.round(s * 0.3)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+    g.font = `${Math.round(s * ([...emoji].length > 1 ? 0.19 : 0.3))}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText(emoji, x, y - s * 0.64);
   });
