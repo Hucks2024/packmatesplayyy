@@ -1430,7 +1430,7 @@ function frame() {
   if (!visible || document.hidden) return;
   clock.update();
   const dt = Math.min(clock.getDelta(), 0.1), t = clock.getElapsed();
-  pNow += (target - pNow) * (1 - Math.exp(-dt * 6.5));
+  pNow += (target - pNow) * (1 - Math.exp(-dt * 8));
   if (Math.abs(target - pNow) < 0.00005) pNow = target;
   const u = pNow, q = storyQ(u), p = oldClock(q);
 
