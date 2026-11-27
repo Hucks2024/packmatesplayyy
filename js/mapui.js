@@ -122,16 +122,6 @@ export function createMapUI(stage) {
   // one pin for each of coffee, a walk and a kickabout, the same pin the map uses; they swap as you scroll
   badge.innerHTML = ['🏃☕️', '🚶', '⚽'].map((e) => `<span class="mapui__swap">${pinSVG('mapui__badge-pin', e)}</span>`).join('');
   stage.insertBefore(badge, stage.querySelector('.caps'));
-  // the last scene: three doors open one by one, each onto a meetup, and we go in through the middle one
-  const doorsEl = document.createElement('div');
-  doorsEl.className = 'doors';
-  doorsEl.setAttribute('aria-hidden', 'true');
-  doorsEl.innerHTML = `<div class="doors__row">${['🧘', '🏃☕️', '⚽'].map((e) => `
-    <div class="door"><div class="door__light"><span>${e}</span></div>
-      <div class="door__panel"><i class="door__inset"></i><i class="door__inset"></i><i class="door__knob"></i></div></div>`).join('')}</div>`;
-  stage.insertBefore(doorsEl, stage.querySelector('.caps'));
-  const doorRow = doorsEl.querySelector('.doors__row');
-  const doorEls = [...doorsEl.querySelectorAll('.door')];
 
   const plane = el.querySelector('.mapui__plane');
   const night = el.querySelector('.mapui__night');
@@ -202,25 +192,11 @@ export function createMapUI(stage) {
     set(el, 'o', 'opacity', cover.toFixed(3));
     toggle(el, 'off', 'is-off', cover <= 0.001);
     // scene 5's badge lives in this layer too, over the 3D scenes
-    const b = smooth(0.62, 0.64, u) * (1 - smooth(0.795, 0.815, u));
+    const b = smooth(0.625, 0.645, u) * (1 - smooth(0.86, 0.88, u));
     set(badge, 'b', 'opacity', b.toFixed(3));
-    set(badge, 'bs', 'transform', `translateX(-50%) scale(${(0.6 + 0.4 * backOut(clamp((u - 0.62) / 0.03))).toFixed(3)})`);
-    const which = u < 0.69 ? 0 : u < 0.75 ? 1 : 2;
+    set(badge, 'bs', 'transform', `translateX(-50%) scale(${(0.6 + 0.4 * backOut(clamp((u - 0.625) / 0.03))).toFixed(3)})`);
+    const which = u < 0.717 ? 0 : u < 0.805 ? 1 : 2;     // café, the walk, the kickabout
     emojis.forEach((e, i) => toggle(e, `e${i}`, 'is-on', i === which));
-    // the doors: in, open left, right, then middle, then through the middle one
-    const dIn = smooth(0.905, 0.925, u);
-    set(doorsEl, 'do', 'opacity', dIn.toFixed(3));
-    toggle(doorsEl, 'doff', 'is-off', dIn <= 0.001);
-    if (dIn > 0.001) {
-      const zoom = smooth(0.95, 0.985, u);
-      [0.926, 0.936, 0.944].forEach((at, i) => {
-        const d = doorEls[[0, 2, 1][i]];
-        set(d, `dr${i}`, '--open', smooth(at, at + 0.012, u).toFixed(3));
-        set(d, `dp${i}`, '--pop', backOut(clamp((u - 0.908 - i * 0.004) / 0.012)).toFixed(3));
-      });
-      set(doorRow, 'dz', 'transform', `scale(${(1 + 22 * Math.pow(zoom, 2.4)).toFixed(3)})`);
-      set(doorsEl, 'dg', '--through', zoom.toFixed(3));
-    }
     if (cover <= 0.001) return;
     const narrow = W / H < 0.9;
     if (narrow && !gap.measured) measure();

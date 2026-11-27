@@ -9,7 +9,7 @@
    The people, places and pins are an illustration, not live data. */
 import * as THREE from './vendor/three.module.min.js';
 import { LAND } from './land.js';
-import { createMapUI } from './mapui.js?v=22';   // versioned with the page, so a cached old copy is never mixed in
+import { createMapUI } from './mapui.js?v=27';   // versioned with the page, so a cached old copy is never mixed in
 
 const root = document.documentElement;
 const story = document.querySelector('.story');
@@ -1501,12 +1501,12 @@ function setWords(p, legacyP) {
     lastRail = now;
     rail.forEach((r, i) => { r.el.classList.toggle('is-now', i === now); r.el.classList.toggle('is-done', i < now); });
   }
-  setVar(stage, '--rail', (1 - smooth(0.975, 0.99, p)).toFixed(2));
+  setVar(stage, '--rail', (1 - smooth(0.96, 0.985, p)).toFixed(2));
   // the one cut: out of the bedroom window into the morning, behind a warm wash
   const o = 0;                                   // no colour washes in this version
   setVar(wash, '--o', o.toFixed(2));
   if ((o > 0.005) !== washOn) { washOn = o > 0.005; wash.classList.toggle('is-on', washOn); }
-  if ((p > 0.86) !== washDawn) { washDawn = p > 0.86; if (postPill) postPill.classList.toggle('is-lit', washDawn); }   // scene 6: the Post button lights up
+  if ((p > 0.935) !== washDawn) { washDawn = p > 0.935; if (postPill) postPill.classList.toggle('is-lit', washDawn); }   // scene 6: the Post button lights up
 }
 
 /* ---------- Size ---------- */
@@ -1543,7 +1543,7 @@ const clock = new THREE.Timer();
 const QMAX = 1.3;
 // The script: the scroll (u, 0..1) plays the map scenes in the page (u < 0.55), then these parts of the 3D story:
 // the five running (q 0.62 – 0.775), coffee, a walk and a kickabout (– 1.09), and the pull back to the world map.
-const SEG = [[0, 0.62], [0.5, 0.62], [0.62, 0.775], [0.8, 1.09], [0.88, 1.3], [1, 1.3]];   // the doors play over the end
+const SEG = [[0, 0.62], [0.5, 0.62], [0.62, 0.775], [0.87, 1.09], [1, 1.3]];
 function storyQ(u) {
   for (let i = SEG.length - 2; i >= 0; i--) {
     const [u0, q0] = SEG[i], [u1, q1] = SEG[i + 1];
@@ -1555,10 +1555,15 @@ const oldClock = (q) => (q < 0.33 ? q : q < 0.64 ? Math.min(0.34, q) : q - 0.3);
 let runAngle = 0;
 let target = 0, pNow = 0, raf = 0, visible = true, lastPhone = -1, started = false, slow = 0, phoneDrawn = -1;
 const look = v(), side = v();
+// Every beat of the story gets the same amount of scroll: the hook, pick a pin, I'm in, turn up,
+// run & coffee, the walk, the kickabout, London. These are where each one starts on the story's clock (u).
+const BEATS = [0, 0.13, 0.29, 0.45, 0.62, 0.717, 0.805, 0.87, 1];
 function readScroll() {
   const rect = story.getBoundingClientRect();
   const span = storyHeight - H;
-  target = span > 0 ? clamp(-rect.top / span) : 0;
+  const sc = span > 0 ? clamp(-rect.top / span) : 0;
+  const k = Math.min(BEATS.length - 2, Math.floor(sc * (BEATS.length - 1)));
+  target = lerp(BEATS[k], BEATS[k + 1], sc * (BEATS.length - 1) - k);
   visible = rect.bottom > 0 && rect.top < window.innerHeight;
   const past = rect.bottom <= barHeight + 6;
   if (past !== pastStage) { pastStage = past; root.classList.toggle('past-stage', past); }
@@ -1578,7 +1583,7 @@ function frame() {
   setWords(u, p);
   mapui.update(u);
   // while the map covers the screen there is nothing 3D to draw
-  if ((u < 0.53 || u > 0.93) && started) { raf = requestAnimationFrame(frame); return; }
+  if (u < 0.53 && started) { raf = requestAnimationFrame(frame); return; }
 
   // the town shrinks to a point on the map as the camera leaves
   const shrink = smooth(0.835, 0.885, p);
