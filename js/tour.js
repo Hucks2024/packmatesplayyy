@@ -9,12 +9,15 @@
    The people, places and pins are an illustration, not live data. */
 import * as THREE from './vendor/three.module.min.js';
 import { LAND } from './land.js';
+import { createMapUI } from './mapui.js?v=27';   // versioned with the page, so a cached old copy is never mixed in
 
 const root = document.documentElement;
 const story = document.querySelector('.story');
 const stage = document.querySelector('.stage');
 const canvas = document.querySelector('.stage__canvas');
 if (!story || !stage || !canvas) throw new Error('tour: markup missing');
+// scenes 1 to 4 (the map, the card, the tap, the clock) are drawn in the page, sharp on any screen: js/mapui.js
+const mapui = createMapUI(stage);
 
 /* ---------- Little helpers ---------- */
 const V3 = THREE.Vector3;
@@ -37,7 +40,16 @@ const pick = (list) => list[Math.floor(rnd() * list.length)];
 /* ---------- Renderer ---------- */
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 const smallScreen = Math.min(window.innerWidth, window.innerHeight) < 700;
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, smallScreen ? 1.75 : 2));
+// Phones and tablets get a lighter version of the same scenes: a simpler surface model (no shine),
+// slightly fewer pixels, and shadows only from the people and the things that move.
+const touch = smallScreen || window.matchMedia('(pointer: coarse)').matches;
+let dpr = Math.min(window.devicePixelRatio || 1, 2);
+function surf(params) {
+  if (!touch) return new THREE.MeshStandardMaterial(params);
+  const { roughness, metalness, ...rest } = params;
+  return new THREE.MeshLambertMaterial(rest);
+}
+renderer.setPixelRatio(dpr);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.shadowMap.enabled = true;
 
@@ -82,7 +94,7 @@ const hemi = new THREE.HemisphereLight(0xd5dcff, 0x3a2a55, 0.6);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffffff, 1);
 sun.castShadow = true;
-sun.shadow.mapSize.set(smallScreen ? 1024 : 2048, smallScreen ? 1024 : 2048);
+sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -13, right: 13, top: 13, bottom: -13, near: 1, far: 90 });
 sun.shadow.bias = -0.0006;
 sun.shadow.normalBias = 0.03;
@@ -124,15 +136,25 @@ function setMood(p) {
 const mats = new Map();
 const mat = (color, rough = 0.85, extra) => {
   const key = color + ':' + rough + (extra ? JSON.stringify(extra) : '');
-  if (!mats.has(key)) mats.set(key, new THREE.MeshStandardMaterial({ color, roughness: rough, ...extra }));
+  if (!mats.has(key)) mats.set(key, surf({ color, roughness: rough, ...extra }));
   return mats.get(key);
 };
 const G = {
-  sphere: new THREE.SphereGeometry(1, 20, 14),
+  sphere: new THREE.SphereGeometry(1, 32, 24),
   box: new THREE.BoxGeometry(1, 1, 1),
   cyl: new THREE.CylinderGeometry(1, 1, 1, 20),
-  cone: new THREE.ConeGeometry(1, 1, 9),
-  blob: new THREE.IcosahedronGeometry(1, 1),
+  cone: new THREE.ConeGeometry(1, 1, 20),
+  blob: (() => {                       // a lumpy sphere: reads as a clump of leaves, not a ball
+    const g = new THREE.SphereGeometry(1, 30, 22), p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      const n = 1 + 0.09 * Math.sin(x * 5.1 + 1.3) * Math.sin(y * 4.7 + 0.7) * Math.sin(z * 5.9 + 2.1)
+        + 0.05 * Math.sin(x * 11 + y * 9 + z * 7) + 0.03 * Math.sin(x * 19 - z * 17 + y * 3);
+      p.setXYZ(i, x * n, y * n, z * n);
+    }
+    g.computeVertexNormals();
+    return g;
+  })(),
 };
 function mesh(geo, material, parent, pos, scale, rot) {
   const m = new THREE.Mesh(geo, material);
@@ -147,7 +169,7 @@ function mesh(geo, material, parent, pos, scale, rot) {
 const capsules = new Map();
 const capsule = (r, len) => {
   const key = r + ':' + len;
-  if (!capsules.has(key)) capsules.set(key, new THREE.CapsuleGeometry(r, len, 5, 12));
+  if (!capsules.has(key)) capsules.set(key, new THREE.CapsuleGeometry(r, len, 8, 20));
   return capsules.get(key);
 };
 function canvasTex(w, h, draw) {
@@ -167,7 +189,24 @@ const SPOT = [v(-62, 0, 0), v(-28, 0, -6), v(2, 0, 8), v(32, 0, -8), v(62, 0, 6)
 const at = (i, x, y, z) => v(SPOT[i].x + x, y, SPOT[i].z + z);
 const places = SPOT.map((c) => { const g = new THREE.Group(); g.position.copy(c); town.add(g); return g; });
 
-const ground = mesh(new THREE.CircleGeometry(260, 64), new THREE.MeshStandardMaterial({ color: 0x4f8f5c, roughness: 1, transparent: true }), town, [0, 0, 0], 1, [-Math.PI / 2, 0, 0]);
+// Grass: a pale texture of blades and speckles, tinted by each lawn's own colour.
+const GRASS = canvasTex(512, 512, (g, w, h) => {
+  g.fillStyle = '#f4f7f1'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 9000; i++) {
+    const x = rnd() * w, y = rnd() * h, l = 3 + rnd() * 7, a = -Math.PI / 2 + (rnd() - 0.5) * 0.9;
+    g.strokeStyle = pick(['#dfe9da', '#d2e0cb', '#c6d7bf', '#ffffff', '#e9f0e5', '#bccfb3']);
+    g.lineWidth = 1 + rnd() * 1.4;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
+  }
+});
+GRASS.wrapS = GRASS.wrapT = THREE.RepeatWrapping;
+function grass(repeat) {
+  const t = GRASS.clone();
+  t.repeat.set(repeat, repeat);
+  t.needsUpdate = true;
+  return t;
+}
+const ground = mesh(new THREE.CircleGeometry(260, 96), surf({ color: 0x4f8f5c, map: grass(110), roughness: 1, transparent: true }), town, [0, 0, 0], 1, [-Math.PI / 2, 0, 0]);
 ground.castShadow = false;
 
 function tree(parent, x, z, s = 1, colors = [0x3f8f5a, 0x4fa368, 0x2f7a52]) {
@@ -176,10 +215,9 @@ function tree(parent, x, z, s = 1, colors = [0x3f8f5a, 0x4fa368, 0x2f7a52]) {
   g.scale.setScalar(s);
   g.rotation.y = rr(0, 6);
   mesh(G.cyl, mat(0x6b4a3a), g, [0, 0.8, 0], [0.13, 1.6, 0.13]);
-  const flat = { flatShading: true };
-  mesh(G.blob, mat(pick(colors), 0.9, flat), g, [0, 2.3, 0], [1.15, 1.25, 1.15]);
-  mesh(G.blob, mat(pick(colors), 0.9, flat), g, [0.55, 1.9, 0.2], 0.72);
-  mesh(G.blob, mat(pick(colors), 0.9, flat), g, [-0.5, 2.0, -0.25], 0.66);
+  mesh(G.blob, mat(pick(colors), 0.85), g, [0, 2.3, 0], [1.15, 1.25, 1.15]);
+  mesh(G.blob, mat(pick(colors), 0.85), g, [0.55, 1.9, 0.2], 0.72);
+  mesh(G.blob, mat(pick(colors), 0.85), g, [-0.5, 2.0, -0.25], 0.66);
   parent.add(g);
   return g;
 }
@@ -188,7 +226,7 @@ function pine(parent, x, z, s = 1) {
   g.position.set(x, 0, z);
   g.scale.setScalar(s);
   mesh(G.cyl, mat(0x5a4032), g, [0, 0.4, 0], [0.11, 0.8, 0.11]);
-  const m = mat(pick([0x2f6f55, 0x2a6650, 0x37785a]), 0.9, { flatShading: true });
+  const m = mat(pick([0x2f6f55, 0x2a6650, 0x37785a]), 0.85);
   mesh(G.cone, m, g, [0, 1.3, 0], [0.95, 1.4, 0.95]);
   mesh(G.cone, m, g, [0, 2.1, 0], [0.72, 1.2, 0.72]);
   mesh(G.cone, m, g, [0, 2.8, 0], [0.48, 1.0, 0.48]);
@@ -204,7 +242,7 @@ function ringOf(parent, count, r0, r1, make, skip) {
   }
 }
 function patch(parent, radius, color) {
-  const m = mesh(new THREE.CircleGeometry(radius, 48), mat(color, 1), parent, [0, 0.02, 0], 1, [-Math.PI / 2, 0, 0]);
+  const m = mesh(new THREE.CircleGeometry(radius, 64), surf({ color, map: grass(radius / 2.2), roughness: 1 }), parent, [0, 0.02, 0], 1, [-Math.PI / 2, 0, 0]);
   m.castShadow = false;
   return m;
 }
@@ -215,70 +253,124 @@ const HAIRS = [0x2a1d18, 0x4a2f20, 0x151318, 0x8a5a2c, 0xd7b46a, 0x6b2e2e];
 const TOPS = [0x7c3aed, 0xec4899, 0xfbbf24, 0x38bdf8, 0x34d399, 0xf97316, 0xffffff, 0xc026d3];
 const BOTTOMS = [0x1f2340, 0x2b2f55, 0x3b3350, 0x23395d, 0x40304a];
 const people = [];
+// People. Each joint (hips, head, upper arm, forearm, thigh, shin) is built from simple shapes, then its shapes
+// are joined into one mesh coloured per corner, so a whole person is ten draws however detailed.
+const PERSON_MAT = surf({ vertexColors: true, roughness: 0.68 });
+const HAIR_CAP = new THREE.SphereGeometry(1, 28, 16, 0, Math.PI * 2, 0, Math.PI * 0.45);
+const SMILE = new THREE.TorusGeometry(1, 0.2, 6, 16, Math.PI);
+function fuse(group, castsOnPhone) {
+  const pos = [], nor = [], col = [];
+  for (const m of group.children.filter((c) => c.isMesh)) {
+    m.updateMatrix();
+    const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+    g.applyMatrix4(m.matrix);
+    const p = g.attributes.position.array, n = g.attributes.normal.array, c = m.material.color;
+    for (let i = 0; i < p.length; i += 3) { pos.push(p[i], p[i + 1], p[i + 2]); nor.push(n[i], n[i + 1], n[i + 2]); col.push(c.r, c.g, c.b); }
+    g.dispose();
+    group.remove(m);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  const m = new THREE.Mesh(geo, PERSON_MAT);
+  m.castShadow = touch ? castsOnPhone : true;
+  m.receiveShadow = true;
+  m.userData.bake = true;
+  group.add(m);
+}
 function person(o = {}) {
-  const skin = mat(o.skin ?? pick(SKINS), 0.7);
-  const top = mat(o.top ?? pick(TOPS), 0.8);
-  const bottom = mat(o.bottom ?? pick(BOTTOMS), 0.85);
-  const hair = mat(o.hair ?? pick(HAIRS), 0.9);
+  const skin = mat(o.skin ?? pick(SKINS), 0.6);
+  const top = mat(o.top ?? pick(TOPS), 0.85);
+  const bottom = mat(o.bottom ?? pick(BOTTOMS), 0.9);
+  const hair = mat(o.hair ?? pick(HAIRS), 0.85);
   const shoe = mat(o.shoes ?? pick([0xffffff, 0xf43f5e, 0x22d3ee, 0xfde047]), 0.6);
+  const sleeve = o.sleeve !== undefined ? mat(o.sleeve, 0.85) : null;          // a long-sleeved shirt
+  const white = mat(0xf7f5f2, 0.4), iris = mat(0x2a1d18, 0.3), lip = mat(0xa45a50, 0.6), sole = mat(0xefece6, 0.8);
   const g = new THREE.Group();
   const hips = new THREE.Group();
   hips.position.y = 0.92;
   g.add(hips);
-  mesh(capsule(0.17, 0.34), top, hips, [0, 0.33, 0]);
-  mesh(capsule(0.165, 0.06), bottom, hips, [0, 0.03, 0]);
+  // body: a chest wider than the waist, a neck
+  mesh(capsule(0.14, 0.2), top, hips, [0, 0.36, 0], [1.18, 1, 0.72]);
+  mesh(capsule(0.125, 0.06), bottom, hips, [0, 0.05, 0], [1.12, 1, 0.78]);
+  mesh(G.cyl, skin, hips, [0, 0.6, 0], [0.043, 0.1, 0.043]);
+  if (o.gilet) {                       // a quarter-zip gilet: a stand-up collar, a short silver zip, quilting
+    mesh(G.cyl, top, hips, [0, 0.6, 0.004], [0.075, 0.06, 0.07]);
+    mesh(G.box, mat(0xd7d7e0, 0.3), hips, [0, 0.5, 0.102], [0.012, 0.12, 0.008]);
+    for (const y of [0.3, 0.4, 0.5]) mesh(G.cyl, mat(0x2e1c10, 0.9), hips, [0, y, 0], [0.167, 0.01, 0.103]);
+  }
+  // the head: skull, jaw, nose, ears, eyes, brows, a small smile, hair
   const head = new THREE.Group();
-  head.position.y = 0.66;
+  head.position.y = 0.62;
   hips.add(head);
-  mesh(G.sphere, skin, head, [0, 0.14, 0], 0.155);
-  const cap = mesh(new THREE.SphereGeometry(0.165, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.55), hair, head, [0, 0.145, -0.008], 1, [-0.32, 0, 0]);
-  cap.receiveShadow = false;
+  mesh(G.sphere, skin, head, [0, 0.13, 0], [0.098, 0.12, 0.108]);
+  mesh(G.sphere, skin, head, [0, 0.075, 0.03], [0.072, 0.065, 0.075]);
+  mesh(G.sphere, skin, head, [0, 0.12, 0.106], [0.016, 0.022, 0.02]);
+  for (const s of [1, -1]) {
+    mesh(G.sphere, skin, head, [s * 0.097, 0.125, 0], [0.014, 0.026, 0.02]);
+    mesh(G.sphere, white, head, [s * 0.036, 0.15, 0.088], 0.016);
+    mesh(G.sphere, iris, head, [s * 0.036, 0.15, 0.1], 0.0095);
+    mesh(G.box, hair, head, [s * 0.037, 0.178, 0.095], [0.036, 0.007, 0.012], [0, 0, -s * 0.08]);
+  }
+  mesh(SMILE, lip, head, [0, 0.083, 0.104], 0.018, [0.25, 0, Math.PI]);
+  mesh(HAIR_CAP, hair, head, [0, 0.135, -0.01], [0.105, 0.128, 0.118], [-0.35, 0, 0]);
+  mesh(G.sphere, hair, head, [0, 0.12, -0.035], [0.1, 0.112, 0.092]);
   const style = o.style ?? Math.floor(rnd() * 3);
-  if (style === 1) mesh(G.sphere, hair, head, [0, 0.3, -0.07], 0.075);                 // a bun
-  if (style === 2) mesh(capsule(0.05, 0.16), hair, head, [0, 0.06, -0.17], 1, [0.35, 0, 0]);   // a ponytail
-  const eye = mat(0x1b1626, 0.4);
-  mesh(G.sphere, eye, head, [0.055, 0.16, 0.142], 0.017).castShadow = false;
-  mesh(G.sphere, eye, head, [-0.055, 0.16, 0.142], 0.017).castShadow = false;
+  if (style === 1) mesh(G.sphere, hair, head, [0, 0.235, -0.075], 0.05);                              // a bun
+  if (style === 2) mesh(capsule(0.035, 0.12), hair, head, [0, 0.07, -0.13], 1, [0.35, 0, 0]);       // a ponytail
   const limb = (side) => {
     const arm = new THREE.Group();
-    arm.position.set(side * 0.235, 0.52, 0);
+    arm.position.set(side * 0.205, 0.5, 0);
     hips.add(arm);
-    mesh(capsule(0.055, 0.2), o.sleeves === false ? skin : top, arm, [0, -0.14, 0]);
+    const tee = o.sleeves === false ? skin : top;
+    mesh(G.sphere, sleeve || tee, arm, [0, 0, 0], 0.058);
+    if (!sleeve && o.sleeves !== false) mesh(capsule(0.05, 0.07), top, arm, [0, -0.07, 0]);
+    mesh(capsule(0.042, 0.19), sleeve || skin, arm, [0, -0.14, 0]);
     const elbow = new THREE.Group();
     elbow.position.y = -0.29;
     arm.add(elbow);
-    mesh(capsule(0.048, 0.18), skin, elbow, [0, -0.13, 0]);
-    const hand = mesh(G.sphere, skin, elbow, [0, -0.28, 0], 0.058);
+    mesh(capsule(0.037, 0.17), sleeve || skin, elbow, [0, -0.13, 0]);
+    mesh(G.sphere, skin, elbow, [0, -0.27, 0.005], [0.035, 0.05, 0.022]);
+    const hand = new THREE.Object3D();
+    hand.position.set(0, -0.27, 0);
+    elbow.add(hand);
     const leg = new THREE.Group();
-    leg.position.set(side * 0.095, 0, 0);
+    leg.position.set(side * 0.085, 0, 0);
     hips.add(leg);
-    mesh(capsule(0.078, 0.26), bottom, leg, [0, -0.2, 0]);
+    mesh(capsule(0.07, 0.26), o.shorts ? skin : bottom, leg, [0, -0.2, 0]);
+    if (o.shorts) mesh(capsule(0.078, 0.12), bottom, leg, [0, -0.08, 0]);
     const knee = new THREE.Group();
     knee.position.y = -0.43;
     leg.add(knee);
-    mesh(capsule(0.06, 0.26), o.shorts ? skin : bottom, knee, [0, -0.19, 0]);
-    mesh(G.box, shoe, knee, [0, -0.43, 0.05], [0.11, 0.09, 0.24]);
+    mesh(capsule(0.052, 0.27), o.shorts ? skin : bottom, knee, [0, -0.19, 0]);
+    if (o.shorts) mesh(G.cyl, white, knee, [0, -0.37, 0], [0.05, 0.06, 0.05]);
+    mesh(capsule(0.048, 0.13), shoe, knee, [0, -0.425, 0.045], [1.15, 1, 0.8], [Math.PI / 2, 0, 0]);
+    mesh(capsule(0.048, 0.13), sole, knee, [0, -0.462, 0.048], [1.18, 1.04, 0.32], [Math.PI / 2, 0, 0]);   // a trainer's white sole
+    for (const [part, big] of [[arm, false], [elbow, false], [leg, true], [knee, true]]) fuse(part, big);
     return { arm, elbow, hand, leg, knee };
   };
   const P = { g, hips, head, L: limb(1), R: limb(-1), phase: rr(0, 6), s: o.h ?? rr(0.9, 1.02) };
+  fuse(hips, true);
+  fuse(head, false);
   g.scale.setScalar(P.s);
   people.push(P);
   return P;
 }
 // Poses. A positive turn of a leg or arm swings it back, a negative one forward.
-function poseRun(P, t, speed = 9.5) {
+function poseRun(P, t, speed = 9.5, amount = 1) {
   const ph = t * speed + P.phase;
   for (const [limb, off] of [[P.L, 0], [P.R, Math.PI]]) {
     const s = Math.sin(ph + off);
-    limb.leg.rotation.x = -s * 0.85 - 0.12;
-    limb.knee.rotation.x = 0.25 + 1.05 * (0.5 + 0.5 * Math.sin(ph + off - 1.35));
-    limb.arm.rotation.x = s * 0.9;
-    limb.elbow.rotation.x = -1.45;
+    limb.leg.rotation.x = (-s * 0.85 - 0.12) * amount;
+    limb.knee.rotation.x = (0.25 + 1.05 * (0.5 + 0.5 * Math.sin(ph + off - 1.35))) * amount;
+    limb.arm.rotation.set(s * 0.9 * amount, 0, 0);
+    limb.elbow.rotation.x = lerp(-0.25, -1.45, amount);
   }
-  P.hips.position.y = 0.9 + Math.abs(Math.sin(ph)) * 0.07;
-  P.hips.rotation.x = 0.2;
-  P.hips.rotation.y = Math.sin(ph) * 0.12;
-  P.head.rotation.x = -0.12;
+  P.hips.position.y = lerp(0.92 + Math.sin(t * 1.5 + P.phase) * 0.006, 0.9 + Math.abs(Math.sin(ph)) * 0.07, amount);
+  P.hips.rotation.x = 0.2 * amount;
+  P.hips.rotation.y = Math.sin(ph) * 0.12 * amount;
+  P.head.rotation.set(-0.12 * amount, 0, 0);
 }
 function poseWalk(P, t, speed = 5.2) {
   const ph = t * speed + P.phase;
@@ -324,7 +416,7 @@ const pinGeo = (segments) => {
   return g;
 };
 const bigPinGeo = pinGeo(28);
-const bigPinMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, emissive: 0x7c2fd0, emissiveIntensity: 0.55 });
+const bigPinMat = surf({ vertexColors: true, roughness: 0.3, emissive: 0x7c2fd0, emissiveIntensity: 0.55 });
 const badge = (emoji) => canvasTex(256, 256, (g) => {
   g.fillStyle = '#fff';
   g.beginPath(); g.arc(128, 128, 120, 0, 7); g.fill();
@@ -349,40 +441,21 @@ function beacon(i, emoji, height = 6.2) {
   return g;
 }
 
-/* ---------- Place 0: evening, the host and the phone ---------- */
-const host = person({ top: 0x7c3aed, bottom: 0x1f2340, skin: 0xd9a273, hair: 0x2a1d18, style: 1, shoes: 0xffffff, h: 1 });
-let phone, phoneTex, phoneCtx, phoneLight;
-const PHONE = { pos: new V3(), n: new V3() };
+/* ---------- Place 0: Friday night, a packed train through the city ---------- */
+// On the train: a City office worker. Suit trousers, a pale blue shirt, a brown quarter-zip gilet, black shoes.
+const HOST_LOOK = { top: 0x5c3820, sleeve: 0xb9cdea, gilet: true, bottom: 0x1e2438, skin: 0xd9a273, hair: 0x2a1d18, style: 0, shoes: 0x16110e };
+// On Saturday's run: the same man, in a brown running top so he is easy to spot.
+const HOST_RUN = { top: 0x8a5a34, bottom: 0x1f2340, skin: 0xd9a273, hair: 0x2a1d18, style: 0, shoes: 0xffffff, shorts: true };
+const GUEST_LOOK = { top: 0xf97316, bottom: 0x3b3350, skin: 0xf2c9a5, hair: 0x8a5a2c, style: 0, shoes: 0x22d3ee };
+// the five on Saturday's run, who then go for coffee in the same kit
+const RUN_LOOKS = [
+  { ...HOST_RUN, h: 1 },
+  { ...GUEST_LOOK, h: 0.97 },
+  ...[0xfbbf24, 0x38bdf8, 0x34d399].map((top, i) => ({ top, shorts: true, sleeves: i % 2 === 1, skin: SKINS[(i + 2) % SKINS.length], style: (i + 2) % 3, bottom: 0x2b2f55, hair: [0x151318, 0xd7b46a, 0x4a2f20][i], shoes: [0xf43f5e, 0xfde047, 0x22d3ee][i] })),
+];
+// Lit windows for the city's towers, tiled so a window stays about a metre across.
+const CITY = {};
 {
-  const p = places[0];
-  patch(p, 11, 0x56875a);
-  const path = mesh(new THREE.PlaneGeometry(3.2, 30), mat(0xb9a9c9, 1), p, [0, 0.03, 0], 1, [-Math.PI / 2, 0, 0.5]);
-  path.castShadow = false;
-  p.add(host.g);
-  // the arm that holds the phone, and the other one in a pocket
-  host.L.arm.rotation.set(-0.3, 0, -0.14);
-  host.L.elbow.rotation.x = -1.5;
-  host.R.arm.rotation.set(0.05, 0, 0.06);
-  host.R.elbow.rotation.x = -0.25;
-  host.head.rotation.set(0.32, 0.22, 0);
-  // a bench and a street lamp
-  const bench = new THREE.Group();
-  bench.position.set(-1.9, 0, -0.6);
-  bench.rotation.y = 0.5;
-  mesh(G.box, mat(0x8a5a3c), bench, [0, 0.45, 0], [1.7, 0.08, 0.5]);
-  mesh(G.box, mat(0x8a5a3c), bench, [0, 0.8, -0.24], [1.7, 0.4, 0.07]);
-  for (const x of [-0.7, 0.7]) mesh(G.box, mat(0x2b2540), bench, [x, 0.22, 0], [0.08, 0.45, 0.45]);
-  p.add(bench);
-  const lamp = new THREE.Group();
-  lamp.position.set(1.7, 0, -1.2);
-  mesh(G.cyl, mat(0x2b2540, 0.5), lamp, [0, 2.0, 0], [0.06, 4.0, 0.06]);
-  mesh(G.cyl, mat(0x2b2540, 0.5), lamp, [0, 0.12, 0], [0.16, 0.24, 0.16]);
-  mesh(G.sphere, new THREE.MeshBasicMaterial({ color: 0xffe2a8 }), lamp, [0, 4.1, 0], 0.26).castShadow = false;
-  const glow = new THREE.PointLight(0xffc37a, 26, 16, 1.8);
-  glow.position.set(0, 3.9, 0);
-  lamp.add(glow);
-  p.add(lamp);
-  // the city behind: blocks with lit windows
   const face = canvasTex(64, 128, (g, w, h) => {
     g.fillStyle = '#2a2147'; g.fillRect(0, 0, w, h);
     for (let y = 6; y < h - 6; y += 12) for (let x = 6; x < w - 6; x += 12) {
@@ -397,37 +470,187 @@ const PHONE = { pos: new V3(), n: new V3() };
     for (let i = 0; i < d.data.length; i += 4) if (d.data[i] < 150) { d.data[i] = d.data[i + 1] = d.data[i + 2] = 0; }
     g.putImageData(d, 0, 0);
   });
-  const block = new THREE.MeshStandardMaterial({ map: face, emissive: 0xffffff, emissiveMap: lit, emissiveIntensity: 0.9, roughness: 0.9 });
-  for (let i = 0; i < 13; i++) {
-    const a = Math.PI * (1.08 + (i / 12) * 0.84), r = rr(15, 22), h = rr(5, 13), w = rr(3.2, 5);
-    mesh(G.box, block, p, [Math.cos(a) * r, h / 2, Math.sin(a) * r], [w, h, w], [0, -a + Math.PI / 2 + rr(-0.2, 0.2), 0]);
-  }
-  ringOf(p, 16, 6.5, 12, tree, (x, z) => Math.abs(x - z * 0.55) < 2.6 || (z > 1 && Math.abs(x) < 5), );
+  for (const t of [face, lit]) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1, 3); }
+  CITY.face = face; CITY.lit = lit;
+}
+const TRAIN = {};
+// A worried brow, for the two who are lonely at the start.
+function addBrows(P) {
+  const brow = mat(0x3a2414, 0.9);
+  P.brows = [1, -1].map((side) => mesh(G.box, brow, P.head, [side * 0.055, 0.2, 0.146], [0.055, 0.012, 0.012], [0, 0, -side * 0.5]));
+  P.brows.forEach((m) => { m.castShadow = false; });
+}
+// A clock face for the scenes: the time is told in the background, on a wall or a post.
+function drawClock(g, w, h, day, time) {
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = '#17112e'; g.beginPath(); g.roundRect(0, 0, w, h, 36); g.fill();
+  g.textBaseline = 'middle';
+  g.fillStyle = '#b9a8ff'; g.font = '700 40px "Open Sans",system-ui,sans-serif'; g.textAlign = 'left';
+  g.fillText(day, 30, 46);
+  g.fillStyle = '#ffe3f6'; g.font = '800 142px "Open Sans",system-ui,sans-serif'; g.textAlign = 'center';
+  g.fillText(time, w / 2 + 20, h / 2 + 22);
+}
+const host = person({ ...HOST_LOOK, h: 1 });
+let phone, phoneTex, phoneCtx, phoneLight, lampLight;
+const floods = [];
+const PHONE = { pos: new V3(), n: new V3() };
+{
+  // Place 0: Friday night, a packed city. An overground tube train on a viaduct, full of people going home from
+  // work, and in it the host: slumped on a seat, on his own in the crowd, phone in hand.
+  const p = places[0];
+  const street = mesh(new THREE.CircleGeometry(95, 48), mat(0x231d38, 1), p, [0, 0.03, 0], 1, [-Math.PI / 2, 0, 0]);
+  street.castShadow = false;
+  // the viaduct
+  const concrete = mat(0x5b5470, 0.95);
+  mesh(G.box, concrete, p, [0, 7.55, 0], [170, 0.5, 4.2]);
+  for (let x = -80; x <= 80; x += 10) mesh(G.box, concrete, p, [x, 3.65, 0], [1.2, 7.3, 2.6]);
+  for (const z of [-0.72, 0.72]) mesh(G.box, mat(0x9a96aa, 0.4), p, [0, 7.86, z], [170, 0.08, 0.08]);
 
-  // the phone, in the host's hand, turned so someone looking over their shoulder can read it
+  // the city: one instanced mesh of tower blocks with lit windows, that slides past while the train is moving
+  const spots = [];
+  for (const side of [-1, 1]) for (const row of [0, 1, 2]) {
+    for (let x = -84; x < 84; x += rr(6.5, 9)) {
+      const z = side * (8 + row * 9.5 + rr(-1, 1)), w = rr(4.5, 7), d = rr(4.5, 7);
+      let h = rr(12, 30) + row * rr(4, 14);
+      // Only the nearest row slides past (the far ones would barely move anyway), so the gaps the camera
+      // needs stay put: low shops on the near side, and low blocks under its path out to the tower.
+      if (side > 0 && row === 0) h = rr(4, 6.5);
+      if (side < 0 && row === 0) h = Math.min(h, 24);
+      if (side < 0 && row > 0 && Math.abs(x) < 12) h = Math.min(h, 9 + row * 3);
+      spots.push({ x, z, w, h, d, slides: row === 0 });
+    }
+  }
+  CITY.spots = spots;
+  CITY.blocks = new THREE.InstancedMesh(G.box, surf({ map: CITY.face, emissive: 0xffffff, emissiveMap: CITY.lit, emissiveIntensity: 0.9, roughness: 0.9 }), spots.length);
+  CITY.blocks.castShadow = CITY.blocks.receiveShadow = false;
+  CITY.blocks.frustumCulled = false;
+  p.add(CITY.blocks);
+  const slot = new THREE.Object3D();
+  CITY.place = (offset) => {
+    spots.forEach((b, i) => {
+      const x = b.slides ? ((b.x + offset + 84) % 168 + 168) % 168 - 84 : b.x;
+      slot.position.set(x, b.h / 2, b.z);
+      slot.scale.set(b.w, b.h, b.d);
+      slot.quaternion.identity();
+      slot.updateMatrix();
+      CITY.blocks.setMatrixAt(i, slot.matrix);
+    });
+    CITY.blocks.instanceMatrix.needsUpdate = true;
+  };
+  CITY.place(0);
+
+  // the train: the carriage we are in, open enough to look into, and one more each side
+  const train = new THREE.Group();
+  train.position.set(0, 8, 0);
+  p.add(train);
+  TRAIN.group = train;
+  const shell = mat(0xd5d6e2, 0.5), stripe = mat(0x7c3aed, 0.6), floor = mat(0x3b3350, 0.9), ceiling = mat(0xeeedf6, 0.7);
+  mesh(G.box, floor, train, [0, -0.05, 0], [14, 0.1, 2.7]);
+  mesh(G.box, ceiling, train, [0, 2.36, 0], [14, 0.12, 2.7]);
+  for (const s of [-1, 1]) {
+    const z = s * 1.33;
+    mesh(G.box, shell, train, [0, 0.45, z], [14, 0.9, 0.06]);
+    mesh(G.box, shell, train, [0, 2.075, z], [14, 0.45, 0.06]);
+    for (const x of [-6.95, -4.6, -2.3, 2.3, 4.6, 6.95]) mesh(G.box, shell, train, [x, 1.375, z], [0.22, 0.95, 0.06]);
+    mesh(G.box, stripe, train, [0, 0.72, s * 1.37], [14, 0.12, 0.02]);
+    const glass = mesh(new THREE.PlaneGeometry(14, 0.95), new THREE.MeshBasicMaterial({ color: 0xb9c6ff, transparent: true, opacity: 0.08, depthWrite: false, side: THREE.DoubleSide }), train, [0, 1.375, z]);
+    glass.castShadow = false;
+    // seats along the wall, and the yellow rail overhead
+    mesh(G.box, mat(0x5b3f9e, 0.95), train, [0, 0.45, s * 1.03], [12.4, 0.1, 0.52]);
+    mesh(G.box, mat(0x2b2540, 0.8), train, [0, 0.22, s * 1.05], [12.4, 0.44, 0.4]);
+    mesh(G.box, mat(0x5b3f9e, 0.95), train, [0, 0.84, s * 1.27], [12.4, 0.62, 0.08]);
+    mesh(G.cyl, mat(0xf2c230, 0.4), train, [0, 2.02, s * 0.62], [0.022, 13.6, 0.022], [0, 0, Math.PI / 2]);
+    const strip = mesh(G.box, new THREE.MeshBasicMaterial({ color: 0xf4f6ff }), train, [0, 2.29, s * 0.45], [12.5, 0.03, 0.22]);
+    strip.castShadow = false;
+  }
+  for (const x of [-7, 7]) mesh(G.box, shell, train, [x, 1.15, 0], [0.06, 2.4, 2.7]);
+  for (const x of [-5.4, -3.1, 3.4, 5.6]) mesh(G.cyl, mat(0xf2c230, 0.4), train, [x, 1.15, x > 0 ? 0.42 : -0.42], [0.025, 2.3, 0.025]);
+  for (const s of [-1, 1]) {           // the next carriages along, seen from outside
+    const car = new THREE.Group();
+    car.position.set(s * 14.4, 0, 0);
+    mesh(G.box, shell, car, [0, 1.15, 0], [14, 2.4, 2.7]);
+    mesh(G.box, stripe, car, [0, 0.72, 0], [14, 0.12, 2.78]);
+    mesh(G.box, new THREE.MeshBasicMaterial({ color: 0xfff1d0 }), car, [0, 1.4, 0], [13.4, 0.8, 2.74]).castShadow = false;
+    train.add(car);
+  }
+
+  // the crowd: going home, eyes on their phones, holding on. They keep still, so they are joined into the scenery.
+  const sitAt = (x, side) => {
+    const P = person({ h: rr(0.92, 1.02) });
+    P.still = true;
+    poseSit(P, rr(0, 9));
+    P.hips.position.y = 0.56;
+    P.g.position.set(x, 0, side * 0.92);
+    P.g.rotation.y = side < 0 ? 0 : Math.PI;
+    P.head.rotation.set(rr(0.2, 0.5), rr(-0.3, 0.3), 0);
+    train.add(P.g);
+  };
+  const standAt = (x, z, holding) => {
+    const P = person({ h: rr(0.94, 1.04) });
+    P.still = true;
+    P.g.position.set(x, 0, z);
+    P.g.rotation.y = rr(-0.4, 0.4) + (z > 0.3 ? Math.PI : 0) + Math.PI / 2 * (rnd() < 0.5 ? 1 : -1) * 0.6;
+    if (holding) { P.R.arm.rotation.set(-2.95, 0, 0.1); P.R.elbow.rotation.x = -0.15; }
+    else { P.L.arm.rotation.set(-0.9, 0, -0.1); P.L.elbow.rotation.x = -1.3; P.head.rotation.x = 0.4; }
+    P.hips.rotation.y = rr(-0.2, 0.2);
+    train.add(P.g);
+  };
+  for (const x of [-1.25, 1.3, -2.7, 2.8, -4.6, 4.9, -6.2]) sitAt(x, -1);
+  for (const x of [-3.6, 3.1, 5.5, -5.6]) sitAt(x, 1);
+  standAt(-2.0, 0.2, true); standAt(2.1, 0.05, false); standAt(-3.9, -0.1, true); standAt(3.9, 0.15, false);
+  standAt(-5.2, 0.35, false); standAt(5.9, -0.05, true); standAt(-2.6, 0.55, false);
+
+  // the host, slumped on a seat with his phone
+  host.g.position.set(0, 0, -0.92);
+  train.add(host.g);
+  for (const limb of [host.L, host.R]) { limb.leg.rotation.x = -1.45; limb.knee.rotation.x = 1.4; }
+  host.hips.position.y = 0.56;
+  host.hips.rotation.x = 0.14;
+  // both hands up in front of his chest, holding the phone, head bowed over it
+  host.L.arm.rotation.set(-0.5, -0.55, -0.1);
+  host.L.elbow.rotation.x = -1.65;
+  host.R.arm.rotation.set(-0.5, 0.55, 0.1);
+  host.R.elbow.rotation.x = -1.65;
+  host.head.rotation.set(0.62, 0, 0);
+  addBrows(host);
+
+  // the carriage light, and the lights of the platforms we pass
+  lampLight = new THREE.PointLight(0xdfe6ff, 18, 12, 1.6);
+  lampLight.position.copy(at(0, 0, 10.1, 0));
+  town.add(lampLight);
+
+  // the phone, in the host's hand, turned so someone looking over his shoulder can read it
   p.updateWorldMatrix(true, true);
-  const hand = host.L.hand.getWorldPosition(new V3());
+  const hand = host.L.hand.getWorldPosition(new V3()).add(host.R.hand.getWorldPosition(new V3())).multiplyScalar(0.5);
+  const head = host.head.getWorldPosition(new V3());
   phone = new THREE.Group();
-  phone.position.copy(p.worldToLocal(hand.clone())).add(v(-0.01, 0.125, 0.0));
-  phone.lookAt(at(0, 0.52, 1.92, -0.62));
-  phone.translateZ(0.05);
+  p.add(phone);                              // in the scene first, so it turns to face the right point
+  phone.position.copy(p.worldToLocal(hand.clone())).add(v(0, 0.1, 0.05));    // held by its lower edge
+  phone.up.set(0, 0, 1);                                    // its top edge points away from him
+  phone.lookAt(head.clone().add(v(0, 0.12, 0.08)));          // the screen faces his eyes
+  phone.rotateZ(0.8);                                       // turned a little in his hands, so it reads upright over his shoulder
+  // the camera reads it from just over his right shoulder, so it looks along a slightly different line
+  const overShoulder = head.clone().add(v(-0.46, 0.4, 0.04));
   phone.scale.setScalar(1.25);
-  mesh(new THREE.BoxGeometry(0.09, 0.19, 0.01), mat(0x16122a, 0.35), phone);
+  mesh(new THREE.BoxGeometry(0.09, 0.19, 0.01), mat(0xc026d3, 0.35), phone);     // a bright case, so you can see it from the front
   const c = document.createElement('canvas');
   c.width = 540; c.height = 1170;
   phoneCtx = c.getContext('2d');
   phoneTex = new THREE.CanvasTexture(c);
   phoneTex.colorSpace = THREE.SRGBColorSpace;
-  phoneTex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  phoneTex.generateMipmaps = false;          // it is redrawn while scrolling: no smaller copies to rebuild each time
+  phoneTex.minFilter = THREE.LinearFilter;
   const screen = mesh(new THREE.PlaneGeometry(0.082, 0.178), new THREE.MeshBasicMaterial({ map: phoneTex, toneMapped: false, fog: false }), phone, [0, 0, 0.0056]);
   screen.castShadow = false;
   phoneLight = new THREE.PointLight(0xb9a0ff, 0.5, 2.2, 2);
-  phoneLight.position.set(0, 0, 0.12);
-  phone.add(phoneLight);
-  p.add(phone);
+  train.attach(phone);                       // it goes where he goes
   phone.updateWorldMatrix(true, false);
   phone.getWorldPosition(PHONE.pos);
-  phone.getWorldDirection(PHONE.n);
+  PHONE.n.copy(overShoulder).sub(PHONE.pos).normalize();
+  phoneLight.position.copy(PHONE.pos).addScaledVector(PHONE.n, 0.14);
+  town.add(phoneLight);
+  PHONE.light = phoneLight.position.clone();
+  PHONE.lamp = lampLight.position.clone();
 }
 
 /* ---------- Place 1: sunrise, the run ---------- */
@@ -447,12 +670,25 @@ const runners = [];
   const spots = [[0, 0], [0.8, 1.3], [-0.75, 1.5], [0.15, 2.9], [-0.9, 3.9]];
   const tops = [0x7c3aed, 0xec4899, 0xfbbf24, 0x38bdf8, 0x34d399];
   spots.forEach(([dx, dz], i) => {
-    const P = person({ top: tops[i], shorts: true, sleeves: i % 2 === 0, skin: SKINS[i % SKINS.length], style: i % 3 });
+    const P = person(RUN_LOOKS[i]);
+    P.slot = v(RUN_R + dx, 0, dz);
+    P.face = Math.PI - dz / RUN_R;
     P.g.position.set(RUN_R + dx, 0, dz);
     P.g.rotation.y = Math.PI - dz / RUN_R;      // facing along the track
     runPivot.add(P.g);
     runners.push(P);
   });
+  // the park clock: it is 8:00
+  const post = new THREE.Group();
+  post.position.set(RUN_R + 2.3, 0, 4.7);
+  mesh(G.cyl, mat(0x2b2540, 0.5), post, [0, 1.5, 0], [0.07, 3, 0.07]);
+  mesh(G.box, mat(0x2b2540, 0.5), post, [0, 3.2, 0], [1.5, 0.72, 0.16]);
+  const face = canvasTex(512, 240, (g, w, h) => drawClock(g, w, h, 'SAT', '08:00'));
+  for (const side of [1, -1]) {
+    const m = mesh(new THREE.PlaneGeometry(1.38, 0.62), new THREE.MeshBasicMaterial({ map: face, toneMapped: false }), post, [0, 3.2, side * 0.085], 1, [0, side > 0 ? 0 : Math.PI, 0]);
+    m.castShadow = false;
+  }
+  p.add(post);
   beacon(1, '🏃');
 }
 
@@ -472,13 +708,13 @@ const steam = [];
   mesh(G.box, mat(0x33294f, 0.3), cafe, [-1.6, 1.5, 1.21], [2.6, 1.7, 0.05]);
   mesh(G.box, mat(0x5b3a2a), cafe, [1.9, 1.1, 1.21], [1.1, 2.2, 0.06]);
   const stripes = canvasTex(128, 32, (g, w, h) => { for (let i = 0; i < 8; i++) { g.fillStyle = i % 2 ? '#ffffff' : '#c026d3'; g.fillRect(i * 16, 0, 16, h); } });
-  mesh(G.box, new THREE.MeshStandardMaterial({ map: stripes, roughness: 0.9 }), cafe, [0, 2.75, 1.85], [6.6, 0.07, 1.5], [0.3, 0, 0]);
+  mesh(G.box, surf({ map: stripes, roughness: 0.9 }), cafe, [0, 2.75, 1.85], [6.6, 0.07, 1.5], [0.3, 0, 0]);
   const sign = canvasTex(256, 64, (g, w, h) => {
     g.fillStyle = '#7c3aed'; g.fillRect(0, 0, w, h);
     g.fillStyle = '#fff'; g.font = '700 40px "Open Sans",sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText('coffee ☕', w / 2, h / 2 + 2);
   });
-  mesh(G.box, new THREE.MeshStandardMaterial({ map: sign, roughness: 0.8 }), cafe, [0, 3.56, 1.36], [2.6, 0.3, 0.02]).castShadow = false;
+  mesh(G.box, surf({ map: sign, roughness: 0.8 }), cafe, [0, 3.56, 1.36], [2.6, 0.3, 0.02]).castShadow = false;
   p.add(cafe);
   // the table
   mesh(G.cyl, mat(0xffffff, 0.5), p, [0, 0.76, 0], [0.85, 0.05, 0.85]);
@@ -487,7 +723,7 @@ const steam = [];
   const tops = [0xfbbf24, 0x7c3aed, 0x38bdf8, 0xec4899, 0x34d399];
   for (let i = 0; i < 5; i++) {
     const a = (i / 5) * Math.PI * 2 + 0.3;
-    const P = person({ top: tops[i], skin: SKINS[(i + 2) % SKINS.length], style: (i + 1) % 3 });
+    const P = person(RUN_LOOKS[i]);              // the same five as on the run: it was a run, then coffee
     P.g.position.set(Math.sin(a) * 1.45, 0, Math.cos(a) * 1.45);
     P.g.rotation.y = a + Math.PI;
     p.add(P.g);
@@ -585,7 +821,7 @@ let ball;
     mesh(G.cyl, white, goal, [0, 0.8, -1.3], [0.05, 1.6, 0.05]);
     mesh(G.cyl, white, goal, [0, 0.8, 1.3], [0.05, 1.6, 0.05]);
     mesh(G.cyl, white, goal, [0, 1.6, 0], [0.05, 2.65, 0.05], [Math.PI / 2, 0, 0]);
-    mesh(G.box, new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.22, roughness: 1 }), goal, [s * 0.5, 0.8, 0], [0.9, 1.6, 2.6]).castShadow = false;
+    mesh(G.box, surf({ color: 0xffffff, transparent: true, opacity: 0.22, roughness: 1 }), goal, [s * 0.5, 0.8, 0], [0.9, 1.6, 2.6]).castShadow = false;
     p.add(goal);
     // floodlights
     const pole = new THREE.Group();
@@ -593,8 +829,9 @@ let ball;
     mesh(G.cyl, mat(0x2b2540, 0.5), pole, [0, 3, 0], [0.07, 6, 0.07]);
     mesh(G.box, new THREE.MeshBasicMaterial({ color: 0xfff1cf }), pole, [0, 6.1, 0.1], [0.9, 0.45, 0.12], [0.5, -s * 0.5, 0]).castShadow = false;
     const flood = new THREE.PointLight(0xffe7c2, 60, 26, 1.7);
-    flood.position.set(0, 6, 0.4);
-    pole.add(flood);
+    flood.position.copy(at(4, s * 8.2, 6, -5.2));
+    town.add(flood);
+    floods.push(flood);
     p.add(pole);
   }
   const tops = [0xec4899, 0x7c3aed, 0xfbbf24, 0x34d399, 0x38bdf8];
@@ -612,13 +849,200 @@ let ball;
     g.fillStyle = '#231a3a';
     for (const [x, y] of [[8, 8], [24, 22], [40, 8], [56, 22], [24, 2], [56, 2], [8, 28], [40, 28]]) { g.beginPath(); g.arc(x, y, 5, 0, 7); g.fill(); }
   });
-  ball = mesh(G.sphere, new THREE.MeshStandardMaterial({ map: ballTex, roughness: 0.5 }), p, [0, 0.16, 0], 0.16);
+  ball = mesh(G.sphere, surf({ map: ballTex, roughness: 0.5 }), p, [0, 0.16, 0], 0.16);
   ringOf(p, 22, 11.5, 15, tree);
   beacon(4, '⚽', 7);
 }
 
+/* ---------- The bedroom: across town, someone who would like to meet people too ---------- */
+const bedroom = new THREE.Group();
+bedroom.position.set(-62, 36, -34);           // eleven floors up, across the city from the train
+town.add(bedroom);
+const inRoom = (x, y, z) => v(bedroom.position.x + x, bedroom.position.y + y, bedroom.position.z + z);
+const guest = person({ ...GUEST_LOOK, h: 0.97 });
+const BED = { x: -0.6, z: -1.2, top: 0.61 };
+let card, cardAsk, cardDone, wallClock, wallClockCtx, wallClockTex, windowPane, bedPhone, duvet;
+{
+  const b = bedroom;
+  const wall = mat(0x6a62a8, 1);
+  mesh(G.box, mat(0x8a7a9c, 1), b, [0, -0.05, 0], [6.4, 0.14, 4.8]);
+  mesh(G.box, wall, b, [0, 1.4, -2.3], [6.4, 2.8, 0.2]);
+  mesh(G.box, wall, b, [-3.1, 1.4, 0], [0.2, 2.8, 4.8]);
+  mesh(G.box, wall, b, [3.1, 1.4, 0], [0.2, 2.8, 4.8]);
+  mesh(G.box, mat(0x4d4680, 1), b, [0, 2.9, 0], [6.6, 0.2, 5]);
+  mesh(G.cyl, mat(0xc4b5fd, 1), b, [0.5, 0.035, 0.7], [1.5, 0.03, 1.1]);
+  // the bed
+  mesh(G.box, mat(0x5a3d2b), b, [BED.x, 0.22, BED.z], [2.3, 0.3, 1.16]);
+  mesh(G.box, mat(0xf3eefc), b, [BED.x, 0.49, BED.z], [2.2, 0.24, 1.08]);
+  mesh(G.box, mat(0x5a3d2b), b, [BED.x - 1.17, 0.7, BED.z], [0.08, 1.1, 1.16]);
+  mesh(G.box, mat(0xffffff), b, [BED.x - 0.8, 0.67, BED.z], [0.5, 0.12, 0.8]);
+  duvet = mesh(capsule(0.3, 0.9), mat(0x7c6ad6, 1), b, [BED.x + 0.42, BED.top + 0.14, BED.z], [1, 1, 1.55], [0, 0, Math.PI / 2]);
+  // a bedside table and lamp, a plant, last night's clothes
+  mesh(G.box, mat(0x8a5a3c), b, [-2.4, 0.3, -1.7], [0.6, 0.6, 0.6]);
+  mesh(G.cyl, mat(0x2b2540, 0.5), b, [-2.4, 0.75, -1.7], [0.03, 0.3, 0.03]);
+  mesh(G.cone, mat(0xd9cdf5), b, [-2.4, 0.98, -1.7], [0.2, 0.26, 0.2]);
+  mesh(G.cyl, mat(0xc26a4a), b, [2.5, 0.25, 1.3], [0.26, 0.5, 0.26]);
+  mesh(G.blob, mat(0x3f8f5a, 0.9, { flatShading: true }), b, [2.5, 0.9, 1.3], 0.5);
+  mesh(G.blob, mat(0x38bdf8, 1, { flatShading: true }), b, [1.6, 0.1, -0.2], [0.4, 0.12, 0.3]);
+  mesh(G.blob, mat(0xec4899, 1, { flatShading: true }), b, [1.2, 0.08, 0.1], [0.3, 0.1, 0.34]);
+  // the window: night outside, then morning
+  windowPane = mesh(new THREE.PlaneGeometry(1.5, 1.3), new THREE.MeshBasicMaterial({ color: 0x1b1a4a, fog: false }), b, [1.75, 1.6, -2.19]);
+  windowPane.castShadow = false;
+  const frame = mat(0xf3eefc);
+  mesh(G.box, frame, b, [1.75, 2.28, -2.17], [1.66, 0.08, 0.08]);
+  mesh(G.box, frame, b, [1.75, 0.92, -2.15], [1.8, 0.08, 0.16]);
+  mesh(G.box, frame, b, [0.96, 1.6, -2.17], [0.08, 1.44, 0.08]);
+  mesh(G.box, frame, b, [2.54, 1.6, -2.17], [0.08, 1.44, 0.08]);
+  mesh(G.box, frame, b, [1.75, 1.6, -2.18], [0.05, 1.3, 0.04]);
+  mesh(G.box, mat(0x7c3aed, 1), b, [0.72, 1.55, -2.12], [0.34, 1.7, 0.1]);
+  mesh(G.box, mat(0x7c3aed, 1), b, [2.78, 1.55, -2.12], [0.34, 1.7, 0.1]);
+  // the clock on the wall
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 240;
+  wallClockCtx = c.getContext('2d');
+  drawClock(wallClockCtx, 512, 240, 'FRI', '21:14');
+  wallClockTex = new THREE.CanvasTexture(c);
+  wallClockTex.colorSpace = THREE.SRGBColorSpace;
+  wallClockTex.generateMipmaps = false;
+  wallClockTex.minFilter = THREE.LinearFilter;
+  wallClock = mesh(new THREE.PlaneGeometry(1.5, 0.7), new THREE.MeshBasicMaterial({ map: wallClockTex, toneMapped: false, fog: false, transparent: true }), b, [BED.x - 0.1, 2.0, -2.19]);
+  wallClock.castShadow = false;
+  // the tower around the room: a slab of flats, and this room one lit window among many
+  const towerMat = (rx, ry) => {
+    const map = CITY.face.clone(), lit = CITY.lit.clone();
+    for (const t of [map, lit]) { t.repeat.set(rx, ry); t.needsUpdate = true; }
+    return surf({ map, emissive: 0xffffff, emissiveMap: lit, emissiveIntensity: 0.9, roughness: 0.9 });
+  };
+  const piece = (x0, x1, y0, y1) => {
+    const m = mesh(G.box, towerMat((x1 - x0) / 5, (y1 - y0) / 10), b, [(x0 + x1) / 2, (y0 + y1) / 2, 0.1], [x1 - x0, y1 - y0, 5]);
+    m.castShadow = m.receiveShadow = false;
+  };
+  piece(-9, 9, -36, -0.12); piece(-9, 9, 2.95, 26); piece(-9, -3.2, -0.12, 2.95); piece(3.2, 9, -0.12, 2.95);
+  // the guest, with a worried brow
+  b.add(guest.g);
+  addBrows(guest);
+  bedPhone = mesh(new THREE.BoxGeometry(0.075, 0.15, 0.012), new THREE.MeshBasicMaterial({ color: 0xd8ccff }), guest.L.elbow, [0, -0.33, 0.06], 1, [0.5, 0, 0]);
+  bedPhone.castShadow = false;
+  // what is on their phone, held up large so it can be read: a meetup nearby, then "You're in"
+  const cardTex = (done) => canvasTex(640, 380, (g, w, h) => {
+    g.fillStyle = '#fff'; g.beginPath(); g.roundRect(8, 8, w - 16, h - 16, 44); g.fill();
+    drawPin(g, 96, 178, 130);
+    g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+    g.fillStyle = '#64748b'; g.font = '700 26px "Open Sans",system-ui,sans-serif'; g.fillText('NEW MEETUP NEAR YOU', 176, 78);
+    g.fillStyle = '#0f172a'; g.font = '800 48px "Open Sans",system-ui,sans-serif'; g.fillText('Morning run', 176, 132);
+    g.fillStyle = '#64748b'; g.font = '600 28px "Open Sans",system-ui,sans-serif'; g.fillText('Sat 8:00 · Riverside Park', 176, 176);
+    const fill = g.createLinearGradient(40, 0, w - 40, 0);
+    if (done) { fill.addColorStop(0, '#16a34a'); fill.addColorStop(1, '#22c55e'); } else { fill.addColorStop(0, '#7c3aed'); fill.addColorStop(0.55, '#c026d3'); fill.addColorStop(1, '#ec4899'); }
+    g.fillStyle = fill; g.beginPath(); g.roundRect(40, 232, w - 80, 100, 50); g.fill();
+    g.fillStyle = '#fff'; g.font = '800 44px "Open Sans",system-ui,sans-serif'; g.textAlign = 'center';
+    g.fillText(done ? "You're in ✓" : "I'm in", w / 2, 298);
+  });
+  cardAsk = cardTex(false);
+  cardDone = cardTex(true);
+  card = new THREE.Sprite(new THREE.SpriteMaterial({ map: cardAsk, depthTest: false, fog: false, toneMapped: false }));
+  card.position.set(BED.x - 0.1, 1.6, BED.z + 0.5);
+  card.renderOrder = 4;
+  b.add(card);
+}
+// The guest through the night: lying on their side with the phone, asleep, then up and out.
+const hip = v(), hipLie = v(BED.x + 0.02, BED.top + 0.25, BED.z), hipSit = v(BED.x + 0.3, BED.top + 0.08, BED.z + 0.48), hipStand = v(0.85, 0.92, -0.5);
+let clockText = '', clockDrawn = -1;
+function playBedroom(q, t) {
+  const P = guest;
+  const awake = 1 - smooth(0.428, 0.44, q);                    // phone down, eyes shut
+  const up = smooth(0.462, 0.474, q), stand = smooth(0.475, 0.489, q);
+  const tilt = (Math.PI / 2) * (1 - up), h = 0.92 * P.s;
+  hip.lerpVectors(hipLie, hipSit, up).lerp(hipStand, stand);
+  if (stand <= 0) hip.y += Math.sin(t * 1.4) * 0.006;
+  P.g.rotation.set(0, 0, tilt);
+  P.g.position.set(hip.x + h * Math.sin(tilt), hip.y - h * Math.cos(tilt), hip.z);
+  P.hips.position.y = 0.92;
+  P.hips.rotation.set(0, 0, 0);
+  const sit = up * (1 - stand), lie = 1 - up, stretch = Math.sin(stand * Math.PI);
+  for (const limb of [P.L, P.R]) { limb.leg.rotation.x = -0.35 * lie - 1.45 * sit; limb.knee.rotation.x = 0.7 * lie + 1.4 * sit; }
+  P.L.arm.rotation.set((-1.25 * awake - 0.5 * (1 - awake)) * lie - 0.2 * sit, 0, 2.5 * stretch);
+  P.L.elbow.rotation.x = (-1.35 * awake - 0.6 * (1 - awake)) * lie - 0.3 * sit;
+  P.R.arm.rotation.set(-0.6 * lie - 0.2 * sit, 0, -2.5 * stretch);
+  P.R.elbow.rotation.x = -1.5 * lie - 0.3 * sit;
+  P.head.rotation.set(0.3 * lie * awake - 0.25 * stretch, 0, 0);
+  const glad = smooth(0.418, 0.426, q);                         // the brow lifts once they are in
+  P.brows.forEach((m, i) => { m.rotation.z = (i ? 0.5 : -0.5) * (1 - glad); });
+  bedPhone.visible = awake > 0.05 && up < 0.5;
+  // the card: pops up, is tapped, goes away
+  const show = backOut(smooth(0.385, 0.4, q)) * (1 - smooth(0.432, 0.445, q));
+  card.visible = show > 0.01;
+  const tapped = q > 0.418;
+  if (card.material.map !== (tapped ? cardDone : cardAsk)) card.material.map = tapped ? cardDone : cardAsk;
+  const press = 1 - 0.07 * smooth(0.412, 0.418, q) * (1 - smooth(0.418, 0.426, q));
+  const fit = (aspect < 0.9 ? 0.66 : 1) * show * press;      // narrower on a phone, so the whole card is in view
+  card.scale.set(1.5 * fit, 0.89 * fit, 1);
+  card.position.y = aspect < 0.9 ? 1.5 : 1.6;
+  // the night goes by on the wall clock and in the window
+  const night = smooth(0.44, 0.488, q);
+  const mins = 21 * 60 + 14 + Math.round(616 * night);
+  const text = `${String(Math.floor(mins / 60) % 24).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+  if (text !== clockText && t - clockDrawn > (touch ? 0.06 : 0.03)) {
+    clockText = text; clockDrawn = t;
+    drawClock(wallClockCtx, 512, 240, mins >= 24 * 60 ? 'SAT' : 'FRI', text);
+    wallClockTex.needsUpdate = true;
+  }
+  const dawn = smooth(0.455, 0.49, q);
+  windowPane.material.color.setRGB(lerp(0.012, 1, dawn), lerp(0.012, 0.6, dawn), lerp(0.07, 0.36, dawn));
+  // the two lights of the host's carriage do duty here, once the camera is in: the glow of the phone, and the window
+  if (q < 0.345) return;
+  phoneLight.position.copy(inRoom(BED.x - 0.75, 1.0, BED.z + 0.45));
+  phoneLight.color.setHex(0xc9b8ff);
+  phoneLight.distance = 4;
+  phoneLight.intensity = 1.6 * awake * (1 - up);
+  lampLight.position.copy(inRoom(1.75, 1.7, -1.5));
+  lampLight.color.setRGB(lerp(0.4, 1, dawn), lerp(0.42, 0.62, dawn), lerp(0.9, 0.3, dawn));
+  lampLight.intensity = lerp(4, 34, dawn);
+}
+
+/* ---------- One mesh per place for everything that never moves ----------
+   Trees, benches, the café and so on are hundreds of small parts. Drawn one by one they are what slows
+   a phone down, so each place's still parts are joined into a single mesh, coloured per corner. */
+function bake(place, moving) {
+  place.updateMatrixWorld(true);
+  const inverse = new THREE.Matrix4().copy(place.matrixWorld).invert();
+  const local = new THREE.Matrix4();
+  const groups = new Map();          // flat-shaded and smooth parts are kept apart
+  const used = [];
+  place.traverse((o) => {
+    const m = o.material;
+    if (!o.isMesh || (!o.castShadow && !o.userData.bake) || !(m.isMeshStandardMaterial || m.isMeshLambertMaterial) || m.map || m.transparent || m.metalness > 0 || (m.vertexColors && !o.geometry.attributes.color)) return;
+    for (let a = o; a && a !== place; a = a.parent) if (moving.includes(a)) return;
+    const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    g.applyMatrix4(local.multiplyMatrices(inverse, o.matrixWorld));
+    const key = m.flatShading ? 'flat' : 'smooth';
+    if (!groups.has(key)) groups.set(key, { pos: [], nor: [], col: [] });
+    const out = groups.get(key), pos = g.attributes.position.array, nor = g.attributes.normal.array;
+    const cols = m.vertexColors ? g.attributes.color.array : null;
+    for (let i = 0; i < pos.length; i += 3) {
+      out.pos.push(pos[i], pos[i + 1], pos[i + 2]);
+      out.nor.push(nor[i], nor[i + 1], nor[i + 2]);
+      if (cols) out.col.push(cols[i], cols[i + 1], cols[i + 2]);
+      else out.col.push(m.color.r, m.color.g, m.color.b);
+    }
+    g.dispose();
+    used.push(o);
+  });
+  for (const o of used) o.removeFromParent();
+  for (const [key, data] of groups) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(data.pos, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(data.nor, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(data.col, 3));
+    mesh(g, surf({ vertexColors: true, roughness: 0.85, flatShading: key === 'flat' }), place).castShadow = !touch;
+  }
+}
+{
+  const moving = [...people.filter((P) => !P.still).map((P) => P.g), dog, phone, ball, ...beacons.map((b) => b.g)];
+  for (const place of [...places, bedroom]) bake(place, moving);
+}
+
 /* ---------- The world map ---------- */
-const MAP = { lon0: -0.12, lat0: 51.5, far: 290 };
+const MAP = { lon0: -0.12, lat0: 51.5, far: 17 };       // far: how far (km) the London pins spread from Hyde Park
 const toMap = (lat, lon) => v(lon - MAP.lon0, 0, -(lat - MAP.lat0));
 const isLand = (lat, lon) => {
   const r = Math.floor((LAND.lat0 - lat) / LAND.step), c = Math.floor((lon + 180) / LAND.step);
@@ -676,32 +1100,126 @@ const CITIES = [
   [35.68, 139.69], [34.69, 135.5], [25.03, 121.57], [43.24, 76.89], [41.3, 69.24],
   [-33.87, 151.21], [-37.81, 144.96], [-27.47, 153.03], [-31.95, 115.86], [-36.85, 174.76], [-41.29, 174.78], [21.31, -157.86],
 ];
-const pinSpots = [];
-CITIES.forEach(([lat, lon], i) => {
-  pinSpots.push({ p: toMap(lat, lon), s: i === 0 ? 1.7 : rr(0.95, 1.3) });
-  for (let k = 0; k < 3; k++) {
-    const la = lat + rr(-5, 5), lo = lon + rr(-7, 7);
-    if (isLand(la, lo)) pinSpots.push({ p: toMap(la, lo), s: rr(0.5, 0.85) });
-  }
+// The last scene is London. At the end of the tour 1 unit is 1 km, with Hyde Park (where the park scenes
+// shrink to) at 0, 0. A night map of the city is drawn here, with the Thames, the parks and some areas named.
+const LDN = { lon0: -0.165, lat0: 51.507, cx: 2.5, size: 40 };
+const ll = (lat, lon) => v((lon - LDN.lon0) * 69.3, 0, -(lat - LDN.lat0) * 111.2);
+const THAMES = [
+  [51.43, -0.33], [51.452, -0.31], [51.468, -0.295], [51.483, -0.27], [51.49, -0.245], [51.486, -0.226], [51.473, -0.236],
+  [51.466, -0.215], [51.465, -0.19], [51.474, -0.17], [51.482, -0.148], [51.487, -0.13], [51.495, -0.123], [51.503, -0.121],
+  [51.509, -0.113], [51.51, -0.095], [51.507, -0.075], [51.503, -0.055], [51.507, -0.035], [51.5, -0.024], [51.488, -0.014],
+  [51.487, 0.0], [51.497, 0.006], [51.507, 0.008], [51.502, 0.03], [51.507, 0.06], [51.504, 0.09], [51.497, 0.13], [51.49, 0.17],
+].map(([lat, lon]) => ll(lat, lon));
+const nearThames = (p, d) => THAMES.some((a, i) => {
+  const b = THAMES[i + 1];
+  if (!b) return false;
+  const t = clamp(((p.x - a.x) * (b.x - a.x) + (p.z - a.z) * (b.z - a.z)) / ((b.x - a.x) ** 2 + (b.z - a.z) ** 2));
+  return Math.hypot(p.x - a.x - t * (b.x - a.x), p.z - a.z - t * (b.z - a.z)) < d;
 });
-pinSpots.forEach((s) => { s.far = Math.hypot(s.p.x, s.p.z); s.phase = rr(0, 6.28); });
-const mapPins = new THREE.InstancedMesh(pinGeo(12), new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }), pinSpots.length);
-mapPins.frustumCulled = false;
-world.add(mapPins);
-const glowTex = canvasTex(64, 64, (g) => {
-  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grad.addColorStop(0, 'rgba(255,190,240,.9)'); grad.addColorStop(0.35, 'rgba(236,72,153,.35)'); grad.addColorStop(1, 'rgba(236,72,153,0)');
-  g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
-});
-const glows = (() => {
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pinSpots.flatMap((s) => [s.p.x, 0.05, s.p.z]), 3));
-  const m = new THREE.PointsMaterial({ map: glowTex, size: 9, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 });
-  const p = new THREE.Points(g, m);
-  p.frustumCulled = false;
-  world.add(p);
-  return p;
+const PARKS = [   // lat, lon, east-west and north-south half-size in km
+  [51.507, -0.172, 1.3, 0.5], [51.527, -0.154, 0.6, 0.55], [51.562, -0.164, 0.9, 0.8], [51.477, 0.0, 0.5, 0.45],
+  [51.536, -0.04, 0.7, 0.35], [51.479, -0.157, 0.5, 0.35], [51.461, -0.146, 0.5, 0.45], [51.443, -0.272, 1.9, 1.6],
+  [51.432, -0.233, 1.0, 0.9], [51.543, -0.016, 0.5, 0.8], [51.445, -0.072, 0.7, 0.5], [51.582, -0.11, 0.6, 0.45],
+  [51.459, 0.04, 0.8, 0.6], [51.555, 0.0, 0.9, 0.6],
+];
+const AREAS = [
+  ['Camden', 51.541, -0.143], ['Shoreditch', 51.526, -0.078], ['Brixton', 51.462, -0.111], ['Hackney', 51.548, -0.055],
+  ['Greenwich', 51.471, -0.0], ['Notting Hill', 51.513, -0.2], ['Soho', 51.514, -0.134], ['Canary Wharf', 51.505, -0.02],
+  ['Islington', 51.536, -0.103], ['Peckham', 51.472, -0.069], ['Stratford', 51.541, -0.003], ['Clapham', 51.455, -0.138],
+  ['Hammersmith', 51.494, -0.224], ['Wimbledon', 51.421, -0.206], ['Highgate', 51.572, -0.146], ['Battersea', 51.47, -0.17],
+];
+const londonTex = (() => {
+  const S = 2048, k = S / LDN.size, x0 = LDN.cx - LDN.size / 2, z0 = -LDN.size / 2;
+  const px = (p) => [(p.x - x0) * k, (p.z - z0) * k];
+  const t = canvasTex(S, S, (g) => {
+    g.fillStyle = '#1b1238'; g.fillRect(0, 0, S, S);
+    for (let i = 0; i < 26000; i++) {                       // the city's blocks, thicker in the middle
+      const r = Math.pow(rnd(), 0.7) * 19, a = rnd() * 7, x = LDN.cx + 1 + Math.cos(a) * r, z = Math.sin(a) * r * 0.9;
+      const [X, Y] = px(v(x, 0, z));
+      g.fillStyle = `rgba(${pick(['120,96,200', '140,110,220', '100,84,180'])},${(0.1 + 0.18 * (1 - r / 19)).toFixed(2)})`;
+      g.fillRect(X, Y, 6 + rnd() * 10, 5 + rnd() * 8);
+    }
+    g.strokeStyle = 'rgba(170,150,240,.22)'; g.lineCap = 'round';
+    const c = ll(51.507, -0.128);
+    g.lineWidth = 7;
+    for (let i = 0; i < 12; i++) {                           // the main roads out of the centre, and a ring road
+      const a = (i / 12) * Math.PI * 2 + 0.2;
+      g.beginPath(); g.moveTo(...px(c)); g.lineTo(...px(v(c.x + Math.cos(a) * 22, 0, c.z + Math.sin(a) * 22))); g.stroke();
+    }
+    g.beginPath(); g.ellipse(...px(c), 9.5 * k, 8 * k, 0, 0, 7); g.stroke();
+    g.fillStyle = '#244a3c';
+    for (const [lat, lon, w, h] of PARKS) { const [X, Y] = px(ll(lat, lon)); g.beginPath(); g.ellipse(X, Y, w * k, h * k, 0, 0, 7); g.fill(); }
+    const river = (width, color) => {
+      g.strokeStyle = color; g.lineWidth = width; g.lineJoin = 'round';
+      g.beginPath(); THAMES.forEach((p, i) => (i ? g.lineTo(...px(p)) : g.moveTo(...px(p)))); g.stroke();
+    };
+    river(34, 'rgba(120,100,230,.35)'); river(18, '#5b48c2'); river(6, '#8c7ae8');
+    g.font = '600 30px "Open Sans",system-ui,sans-serif'; g.textAlign = 'center'; g.fillStyle = 'rgba(210,198,255,.55)';
+    for (const [name, lat, lon] of AREAS) g.fillText(name, ...px(ll(lat, lon)));
+    g.globalCompositeOperation = 'destination-in';           // fade out at the edges, so the map has no hard square
+    const fade = g.createRadialGradient(S / 2, S / 2, S * 0.3, S / 2, S / 2, S * 0.5);
+    fade.addColorStop(0, '#000'); fade.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = fade; g.fillRect(0, 0, S, S);
+  });
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
 })();
+const londonMap = new THREE.Mesh(new THREE.PlaneGeometry(LDN.size, LDN.size), new THREE.MeshBasicMaterial({ map: londonTex, transparent: true, depthWrite: false, toneMapped: false, fog: false }));
+londonMap.rotation.x = -Math.PI / 2;
+londonMap.position.set(LDN.cx, -0.02, 0);
+londonMap.renderOrder = -1;
+world.add(londonMap);
+dots.visible = false;                                         // the dotted world map is not used any more
+
+// The pins: the run & coffee in Hyde Park, and meetups all over London, a little apart from each other
+const pinSpots = [{ p: v(0, 0, 0), s: 1.35, home: true }];
+const GAP = 1.15;
+const roomFor = (p) => pinSpots.every((s) => Math.hypot(s.p.x - p.x, s.p.z - p.z) > GAP);
+for (let tries = 0; tries < 8000 && pinSpots.length < 150; tries++) {
+  const a = rr(0, Math.PI * 2), r = Math.sqrt(rnd()) * 15;
+  const p = v(LDN.cx + Math.cos(a) * r * 1.15, 0, Math.sin(a) * r * 0.95);
+  if (!nearThames(p, 0.5) && roomFor(p)) pinSpots.push({ p, s: rr(0.82, 1.05) });
+}
+pinSpots.forEach((s) => { s.far = Math.hypot(s.p.x, s.p.z); s.phase = rr(0, 6.28); });
+// a phone shows the map smaller, so it gets a thinner set
+{
+  const kept = [];
+  for (const s of pinSpots) {
+    s.phone = kept.every((k) => Math.hypot(k.p.x - s.p.x, k.p.z - s.p.z) > GAP * 1.45);
+    if (s.phone) kept.push(s);
+  }
+}
+pinSpots.sort((a, b) => a.p.z - b.p.z);            // far ones first, so nearer pins are drawn over them
+// The pin itself is the app's own: a flat picture that always faces the camera, standing on its point.
+// Like the app, each pin shows its meetup's activity: one set of pins per emoji.
+const PIN_EMOJI = ['🏃', '☕', '🏃☕️', '🚶', '⚽', '🧘', '🚶☕', '🎲', '🚴', '🏊', '🎾', '🍕', '🚴🍕'];      // some are two things in a row, like the app
+const pinCounts = PIN_EMOJI.map(() => 0);
+pinSpots.forEach((spot, i) => {
+  spot.k = spot.home ? PIN_EMOJI.indexOf('🏃☕️') : (i * 7) % PIN_EMOJI.length;
+  spot.j = pinCounts[spot.k]++;
+});
+const pinPlane = new THREE.PlaneGeometry(0.75, 1).translate(0, 0.5 - 14 / 256, 0);
+const pinMeshes = PIN_EMOJI.map((emoji, k) => {
+  const tex = canvasTex(192, 256, (g, w, h) => {
+    const s = h - 28, x = w / 2, y = h - 14;
+    g.shadowColor = 'rgba(20,6,50,.55)'; g.shadowBlur = 10; g.shadowOffsetY = 3;
+    drawPin(g, x, y, s, false);                // the emoji pins have a plain head, so the white circle stays round
+    g.shadowColor = 'transparent';
+    g.fillStyle = '#fff';
+    g.beginPath(); g.arc(x, y - s * 0.655, s * 0.255, 0, 7); g.fill();
+    g.font = `${Math.round(s * ([...emoji].length > 1 ? 0.19 : 0.3))}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(emoji, x, y - s * 0.64);
+  });
+  // drawn into the depth buffer (cut out where see-through), so near pins cover far ones whatever their emoji
+  const m = new THREE.InstancedMesh(pinPlane, new THREE.MeshBasicMaterial({ map: tex, alphaTest: 0.4, toneMapped: false, fog: false }), Math.max(1, pinCounts[k]));
+  m.count = pinCounts[k];
+  m.frustumCulled = false;
+  m.renderOrder = 3;
+  world.add(m);
+  return m;
+});
+
 const pulse = mesh(new THREE.RingGeometry(0.86, 1, 48), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false }), world, [0, 0.06, 0], 1, [-Math.PI / 2, 0, 0]);
 pulse.castShadow = false;
 const dummy = new THREE.Object3D();
@@ -715,21 +1233,26 @@ function brandFill(g, x0, y0, x1, y1) {
   f.addColorStop(0, '#7c3aed'); f.addColorStop(0.55, '#c026d3'); f.addColorStop(1, '#ec4899');
   return f;
 }
-function drawPin(g, x, y, s) {            // x, y is the point of the pin; s its height
-  const r = s * 0.37, cy = y - s + r;
+function drawPin(g, x, y, s, people = true) {   // x, y is the point of the pin; s its height; people: the logo's three figures
+  const w = s * 0.35;
   g.beginPath();
   g.moveTo(x, y);
-  const a = 0.63;
-  g.lineTo(x - Math.cos(a) * r, cy + Math.sin(a) * r);
-  g.arc(x, cy, r, Math.PI - a, a, false);
+  g.bezierCurveTo(x - s * 0.2, y - s * 0.23, x - w, y - s * 0.44, x - w, y - s * 0.655);
+  g.bezierCurveTo(x - w, y - s * 0.9, x - s * 0.2, y - s, x, y - s);
+  g.bezierCurveTo(x + s * 0.2, y - s, x + w, y - s * 0.9, x + w, y - s * 0.655);
+  g.bezierCurveTo(x + w, y - s * 0.44, x + s * 0.2, y - s * 0.23, x, y);
   g.closePath();
-  g.fillStyle = brandFill(g, x, y - s, x, y);
+  const fill = g.createLinearGradient(x, y - s, x, y);
+  fill.addColorStop(0, '#8b5cf6'); fill.addColorStop(0.55, '#c026d3'); fill.addColorStop(1, '#ec4899');
+  g.fillStyle = fill;
   g.fill();
+  g.shadowColor = 'transparent';
   g.fillStyle = '#fff';
-  for (const [dx, k] of [[-0.42, 0.72], [0.42, 0.72], [0, 1]]) {
-    const px = x + dx * r, u = r * 0.2 * k;
-    g.beginPath(); g.arc(px, cy - u * 0.9, u * 0.72, 0, 7); g.fill();
-    rrect(g, px - u, cy + u * 0.05, u * 2, u * 2.1, u * 0.9); g.fill();
+  if (!people) return;
+  for (const [dx, k, up] of [[-0.2, 0.78, 0], [0.2, 0.78, 0], [0, 1, 0.012]]) {
+    const px = x + dx * s, head = s * 0.058 * k, body = s * 0.082 * k, base = y - s * (0.395 + up);
+    g.beginPath(); g.arc(px, base - body * 2.25 - head * 1.25, head, 0, 7); g.fill();
+    rrect(g, px - body, base - body * 2.25, body * 2, body * 2.25, [body, body, body * 0.45, body * 0.45]); g.fill();
   }
 }
 const FACES = [['#d9a273', '#7c3aed'], ['#f2c9a5', '#ec4899'], ['#a9714b', '#fbbf24'], ['#f6d7bd', '#38bdf8'], ['#7a4b2f', '#34d399']];
@@ -780,9 +1303,8 @@ function drawPhone(s, t) {
     // the card at the bottom: who is in
     const up = smooth(0.56, 0.62, s);
     const top = lerp(H + 20, 800, up);
-    g.shadowColor = 'rgba(40,10,90,.25)'; g.shadowBlur = 40; g.shadowOffsetY = -6;
+    g.fillStyle = 'rgba(40,10,90,.10)'; rrect(g, 0, top - 10, W, 420, 50); g.fill();
     g.fillStyle = '#fff'; rrect(g, 0, top, W, 420, 44); g.fill();
-    g.shadowColor = 'transparent';
     g.fillStyle = '#e2e8f0'; rrect(g, W / 2 - 34, top + 16, 68, 8, 4); g.fill();
     g.textAlign = 'left'; g.textBaseline = 'alphabetic';
     g.fillStyle = INK; g.font = font(42, 800); g.fillText('🏃 Morning run', 34, top + 86);
@@ -859,38 +1381,58 @@ function drawPhone(s, t) {
 /* ---------- The camera's path ----------
    Each key is where the camera is and what it looks at when the scroll reaches p. A key with a "frame"
    is given in that object's own space, so the camera can ride along with the runners and the walkers.
-   A new list is a cut: the jump through the phone happens behind the wash of colour. */
+   A new list is a cut: the jump through the phone, and the one out of the bedroom window, happen behind a wash of colour.
+   Times here are story time (see QMAX below), not the 0..1 of the scroll. */
 const pc = (d, side = 0, up = 0) => PHONE.pos.clone().addScaledVector(PHONE.n, d).add(v(side, up, 0));
-const mapEnd = { pos: v(0, 200, 150), look: v(8, 0, 36) };
-const mapEnd2 = { pos: v(0, 220, 160), look: v(8, 0, 36) };
+const mapEnd = { pos: v(0, 20, 15), look: v(2.2, 0, 1.2) };          // all of London (set in resize)
+const mapEnd2 = { pos: v(0, 22, 16), look: v(2.2, 0, 1.2) };
+const tr = (x, y, z) => at(0, x, 8 + y, z);                      // inside the train
 const SHOTS = [
   [
-    { p: 0.00, pos: at(0, 3.6, 2.0, 7.4), look: at(0, 0.3, 1.5, 0) },
-    { p: 0.07, pos: at(0, 2.3, 1.75, 3.6), look: at(0, 0.1, 1.3, 0) },
-    { p: 0.115, pos: at(0, 2.6, 1.9, 0.2), look: at(0, 0.15, 1.3, 0.2) },
+    // the city at night, the train, and in through its window to him
+    { p: 0.00, pos: tr(-3.4, 2.4, 10.5), look: tr(0.2, 1.0, -0.6) },
+    { p: 0.06, pos: tr(-1.3, 1.65, 4.4), look: tr(0, 1.0, -0.85) },
+    { p: 0.10, pos: tr(0.35, 1.5, 0.5), look: tr(0, 1.0, -0.92) },
+    // over his shoulder: the phone
     { p: 0.145, pos: pc(0.95, 0.06, 0.02), look: PHONE.pos.clone() },
     { p: 0.175, pos: pc(0.4), look: PHONE.pos.clone() },
-    { p: 0.27, pos: pc(0.31), look: PHONE.pos.clone() },
-    { p: 0.33, pos: pc(0.1), look: PHONE.pos.clone() },
+    { p: 0.255, pos: pc(0.31), look: PHONE.pos.clone() },
+    // pull away from him, out of the window, up over the city, across to the tower and in at one window
+    { p: 0.28, pos: tr(0.3, 1.5, 0.55), look: tr(0, 1.05, -0.92) },
+    { p: 0.30, pos: tr(0.45, 1.5, 2.5), look: tr(0, 1.1, -0.92) },
+    { p: 0.317, pos: tr(0.6, 2.4, 5.5), look: tr(0, 1.3, -0.9) },
+    { p: 0.33, pos: tr(0.8, 9, 12), look: tr(0, 3, -8) },
+    { p: 0.35, pos: inRoom(0.5, 3.4, 14), look: inRoom(-0.3, 1.4, -1) },
+    { p: 0.365, pos: inRoom(0.4, 1.8, 5.2), look: inRoom(-0.5, 1.15, -1.2) },
+    // the bedroom
+    { p: 0.378, pos: inRoom(-0.1, 1.5, 3.0), look: inRoom(-0.7, 1.15, -1.2) },
+    { p: 0.405, pos: inRoom(-0.9, 1.4, 1.5), look: inRoom(-0.75, 1.3, -1.2) },
+    { p: 0.435, pos: inRoom(-0.9, 1.4, 1.5), look: inRoom(-0.7, 1.3, -1.2) },
+    { p: 0.465, pos: inRoom(0.5, 1.55, 3.5), look: inRoom(0.2, 1.45, -2.2) },
+    { p: 0.486, pos: inRoom(0.9, 1.55, 3.0), look: inRoom(0.9, 1.45, -2.2) },
+    { p: 0.50, pos: inRoom(1.5, 1.6, 0.8), look: inRoom(1.75, 1.6, -2.2) },
   ],
+  // out of the window, into the morning: the two meet, then everyone runs
   [
-    { p: 0.33, frame: runPivot, pos: v(RUN_R + 0.6, 0.8, -9), look: v(RUN_R, 1.15, 0) },
-    { p: 0.385, frame: runPivot, pos: v(RUN_R + 1.6, 1.05, -6.4), look: v(RUN_R - 0.1, 1.1, 1.2) },
-    { p: 0.43, frame: runPivot, pos: v(RUN_R + 4.6, 1.5, -2.6), look: v(RUN_R - 0.2, 1.0, 1.6) },
-    { p: 0.475, frame: runPivot, pos: v(RUN_R + 5.2, 2.4, 5.5), look: v(RUN_R - 0.2, 1.0, 1.2) },
-    { p: 0.50, pos: v(-12, 8.5, 20), look: at(2, 0, 2.2, 0) },
-    { p: 0.535, pos: at(2, 3.4, 2.1, 5.4), look: at(2, 0, 1.0, 0) },
-    { p: 0.585, pos: at(2, -3.3, 1.75, 4.4), look: at(2, 0, 1.0, 0) },
-    { p: 0.61, pos: v(16, 8, 14), look: at(3, 0, 2, 0) },
-    { p: 0.645, frame: walkPivot, pos: v(WALK_R + 1.9, 1.25, -6.2), look: v(WALK_R, 1.05, 0.8) },
-    { p: 0.69, frame: walkPivot, pos: v(WALK_R + 4.6, 1.7, -0.6), look: v(WALK_R - 0.2, 1.0, 1.4) },
-    { p: 0.715, pos: v(46, 8.5, 14), look: at(4, 0, 2, 0) },
-    { p: 0.745, pos: at(4, 5.2, 2.0, 6.6), look: at(4, 0, 1.0, 0) },
-    { p: 0.79, pos: at(4, -4.8, 3.0, 6.4), look: at(4, 0, 1.0, 0) },
-    { p: 0.825, pos: v(34, 60, 62), look: v(22, 0, 0) },
-    { p: 0.87, pos: v(4, 120, 96), look: v(4, 0, 22) },
-    { p: 0.93, ...mapEnd },
-    { p: 1.00, ...mapEnd2 },
+    { p: 0.50, frame: runPivot, pos: v(RUN_R + 5.2, 2.0, -4.6), look: v(RUN_R + 1.6, 1.25, 0.6) },
+    { p: 0.55, frame: runPivot, pos: v(RUN_R + 3.6, 1.55, -4.2), look: v(RUN_R + 0.7, 1.3, 0.4) },
+    { p: 0.60, frame: runPivot, pos: v(RUN_R + 0.5, 1.5, -3.4), look: v(RUN_R + 0.5, 1.45, 0.4) },
+    { p: 0.685, frame: runPivot, pos: v(RUN_R + 1.6, 1.05, -6.4), look: v(RUN_R - 0.1, 1.1, 1.2) },
+    { p: 0.730, frame: runPivot, pos: v(RUN_R + 4.6, 1.5, -2.6), look: v(RUN_R - 0.2, 1.0, 1.6) },
+    { p: 0.775, frame: runPivot, pos: v(RUN_R + 5.2, 2.4, 5.5), look: v(RUN_R - 0.2, 1.0, 1.2) },
+    { p: 0.800, pos: v(-12, 8.5, 20), look: at(2, 0, 2.2, 0) },
+    { p: 0.835, pos: at(2, 3.4, 2.1, 5.4), look: at(2, 0, 1.0, 0) },
+    { p: 0.885, pos: at(2, -3.3, 1.75, 4.4), look: at(2, 0, 1.0, 0) },
+    { p: 0.910, pos: v(16, 8, 14), look: at(3, 0, 2, 0) },
+    { p: 0.945, frame: walkPivot, pos: v(WALK_R + 1.9, 1.25, -6.2), look: v(WALK_R, 1.05, 0.8) },
+    { p: 0.990, frame: walkPivot, pos: v(WALK_R + 4.6, 1.7, -0.6), look: v(WALK_R - 0.2, 1.0, 1.4) },
+    { p: 1.002, frame: walkPivot, pos: v(WALK_R + 5.4, 6.8, -0.4), look: v(WALK_R - 0.2, 1.0, 1.4) },      // up over the pines before leaving
+    { p: 1.015, pos: v(46, 8.5, 14), look: at(4, 0, 2, 0) },
+    { p: 1.045, pos: at(4, 5.2, 2.0, 6.6), look: at(4, 0, 1.0, 0) },
+    { p: 1.090, pos: at(4, -4.8, 3.0, 6.4), look: at(4, 0, 1.0, 0) },
+    { p: 1.14, pos: v(30, 34, 46), look: v(14, 0, 2) },          // up over the park as it shrinks into London
+    { p: 1.230, ...mapEnd },
+    { p: 1.300, ...mapEnd2 },
   ],
 ];
 const A = { pos: [v(), v(), v(), v()], look: [v(), v(), v(), v()] };
@@ -921,7 +1463,7 @@ function cameraAt(p) {
   const k = [shot[Math.max(0, i - 1)], shot[i], shot[i + 1], shot[Math.min(shot.length - 1, i + 2)]];
   for (let j = 0; j < 4; j++) keyInto(k[j], A.pos[j], A.look[j]);
   let t = clamp((p - k[1].p) / (k[2].p - k[1].p));
-  t = lerp(t, t * t * (3 - 2 * t), 0.55);
+  t = lerp(t, t * t * (3 - 2 * t), 0.3);
   for (const [pts, out] of [[A.pos, camPos], [A.look, camLook]]) {
     tangent(pts[0], pts[1], pts[2], i > 0, true, tan0);
     tangent(pts[1], pts[2], pts[3], true, i + 2 < shot.length, tan1);
@@ -933,16 +1475,24 @@ function cameraAt(p) {
 const caps = [...document.querySelectorAll('.cap')].map((el) => ({ el, from: +el.dataset.from, to: +el.dataset.to, on: null }));
 const rail = [...document.querySelectorAll('.rail li')].map((el) => ({ el, at: +el.dataset.at }));
 const wash = document.querySelector('.wash');
-const washDay = document.querySelector('.wash__day');
-const washTime = document.querySelector('.wash__time');
-const washClock = document.querySelector('.wash__clock');
+let washOn = false, washDawn = false, pastStage = null;
+const postPill = document.querySelector('.post-pill');
 const topbar = document.querySelector('.topbar');
-let lastTime = '', lastRail = -1;
-function setWords(p) {
+let lastRail = -1;
+// write a CSS variable only when its value changes, so a still frame costs the page nothing
+const written = new Map();
+function setVar(el, name, value) {
+  let seen = written.get(el);
+  if (!seen) written.set(el, seen = {});
+  if (seen[name] === value) return;
+  seen[name] = value;
+  el.style.setProperty(name, value);
+}
+function setWords(p, legacyP) {
   for (const c of caps) {
-    const o = smooth(c.from, c.from + 0.022, p) * (1 - smooth(c.to - 0.022, c.to, p));
+    const o = smooth(c.from, c.from + 0.03, p) * (1 - smooth(c.to - 0.03, c.to, p));
     const on = o > 0.01;
-    c.el.style.setProperty('--o', o.toFixed(3));
+    setVar(c.el, '--o', o.toFixed(2));
     if (on !== c.on) { c.on = on; c.el.classList.toggle('is-on', on); }
   }
   let now = 0;
@@ -951,32 +1501,22 @@ function setWords(p) {
     lastRail = now;
     rail.forEach((r, i) => { r.el.classList.toggle('is-now', i === now); r.el.classList.toggle('is-done', i < now); });
   }
-  stage.style.setProperty('--rail', (1 - smooth(0.9, 0.94, p)).toFixed(3));
-  // the wash and its clock
-  const o = smooth(0.29, 0.312, p) * (1 - smooth(0.352, 0.385, p));
-  wash.style.setProperty('--o', o.toFixed(3));
-  wash.classList.toggle('is-on', o > 0.005);
-  if (o > 0.005) {
-    const c = smooth(0.3, 0.348, p);
-    const mins = 21 * 60 + 14 + Math.round(646 * c);
-    const hh = Math.floor(mins / 60) % 24, mm = mins % 60;
-    const text = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
-    if (text !== lastTime) {
-      lastTime = text;
-      washTime.textContent = text;
-      washDay.textContent = mins >= 24 * 60 ? 'Saturday' : 'Friday';
-    }
-    const done = smooth(0.94, 1, c);
-    washClock.style.setProperty('--n', done.toFixed(3));
-    washClock.style.setProperty('--s', (0.92 + 0.08 * c + done * 0.05).toFixed(3));
-  }
+  setVar(stage, '--rail', (1 - smooth(0.96, 0.985, p)).toFixed(2));
+  // the one cut: out of the bedroom window into the morning, behind a warm wash
+  const o = 0;                                   // no colour washes in this version
+  setVar(wash, '--o', o.toFixed(2));
+  if ((o > 0.005) !== washOn) { washOn = o > 0.005; wash.classList.toggle('is-on', washOn); }
+  if ((p > 0.935) !== washDawn) { washDawn = p > 0.935; if (postPill) postPill.classList.toggle('is-lit', washDawn); }   // scene 6: the Post button lights up
 }
 
 /* ---------- Size ---------- */
-let W = 1, H = 1, aspect = 1;
+let W = 1, H = 1, aspect = 1, storyHeight = 1, barHeight = 60;
 function resize() {
   W = stage.clientWidth; H = stage.clientHeight;
   if (!W || !H) return;
+  mapui.resize(W, H);
+  storyHeight = story.offsetHeight;
+  barHeight = topbar ? topbar.offsetHeight : 60;
   aspect = W / H;
   renderer.setSize(W, H, false);
   camera.aspect = aspect;
@@ -985,9 +1525,9 @@ function resize() {
   camera.updateProjectionMatrix();
   // the last frame: as much of the map as fits
   const half = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * aspect;
-  const wide = aspect > 1.2 ? 330 : aspect > 0.75 ? 240 : 150;
+  const wide = aspect > 1.2 ? 31 : aspect > 0.75 ? 25 : 17;          // km of London across the screen
   const dist = wide / 2 / half;
-  MAP.pan = Math.max(6, (330 - wide) / 2);
+  MAP.pan = 0.8;
   MAP.dist = dist;
   mapEnd.pos.set(mapEnd.look.x, dist * 0.84, mapEnd.look.z + dist * 0.54);
   mapEnd2.pos.set(mapEnd.look.x, dist * 0.92, mapEnd.look.z + dist * 0.5);
@@ -996,50 +1536,152 @@ function resize() {
 
 /* ---------- Every frame ---------- */
 const clock = new THREE.Timer();
-let target = 0, pNow = 0, raf = 0, visible = true, lastPhone = -1, started = false;
+/* Story time. The first version of the story ran from 0 to 1. The bedroom and the meeting were added in
+   the middle, between 0.33 and 0.63, so the story now runs from 0 to QMAX. "q" is that story time; the
+   parts written before (the day's moods, which places are drawn, the zoom out to the map) still read
+   the old 0..1 clock, which simply stands still while the new middle plays. */
+const QMAX = 1.3;
+// The script: the scroll (u, 0..1) plays the map scenes in the page (u < 0.55), then these parts of the 3D story:
+// the five running (q 0.62 – 0.775), coffee, a walk and a kickabout (– 1.09), and the pull back to the world map.
+const SEG = [[0, 0.62], [0.5, 0.62], [0.62, 0.775], [0.87, 1.09], [1, 1.3]];
+function storyQ(u) {
+  for (let i = SEG.length - 2; i >= 0; i--) {
+    const [u0, q0] = SEG[i], [u1, q1] = SEG[i + 1];
+    if (u >= u0 && u1 > u0) return q0 + (q1 - q0) * clamp((u - u0) / (u1 - u0));
+  }
+  return SEG[0][1];
+}
+const oldClock = (q) => (q < 0.33 ? q : q < 0.64 ? Math.min(0.34, q) : q - 0.3);
+let runAngle = 0;
+let target = 0, pNow = 0, raf = 0, visible = true, lastPhone = -1, started = false, slow = 0, phoneDrawn = -1;
 const look = v(), side = v();
+// Every beat of the story gets the same amount of scroll: the hook, pick a pin, I'm in, turn up,
+// run & coffee, the walk, the kickabout, London. These are where each one starts on the story's clock (u).
+const BEATS = [0, 0.13, 0.29, 0.45, 0.62, 0.717, 0.805, 0.87, 1];
 function readScroll() {
   const rect = story.getBoundingClientRect();
-  const span = story.offsetHeight - stage.offsetHeight;
-  target = span > 0 ? clamp(-rect.top / span) : 0;
+  const span = storyHeight - H;
+  const sc = span > 0 ? clamp(-rect.top / span) : 0;
+  const k = Math.min(BEATS.length - 2, Math.floor(sc * (BEATS.length - 1)));
+  target = lerp(BEATS[k], BEATS[k + 1], sc * (BEATS.length - 1) - k);
   visible = rect.bottom > 0 && rect.top < window.innerHeight;
-  root.classList.toggle('past-stage', rect.bottom <= (topbar ? topbar.offsetHeight : 60) + 6);
+  const past = rect.bottom <= barHeight + 6;
+  if (past !== pastStage) { pastStage = past; root.classList.toggle('past-stage', past); }
 }
 function frame() {
   raf = 0;
+  readScroll();
   if (!visible || document.hidden) return;
   clock.update();
   const dt = Math.min(clock.getDelta(), 0.1), t = clock.getElapsed();
-  pNow += (target - pNow) * (1 - Math.exp(-dt * 5.5));
+  pNow += (target - pNow) * (1 - Math.exp(-dt * 8));
   if (Math.abs(target - pNow) < 0.00005) pNow = target;
-  const p = pNow;
+  const u = pNow, q = storyQ(u), p = oldClock(q);
 
-  setMood(p);
-  setWords(p);
+  // night in the park and the bedroom, turning to sunrise as the night goes by on the wall clock
+  setMood(q < 0.33 ? q : q < 0.63 ? lerp(0.32, 0.33, smooth(0.455, 0.495, q)) : p);
+  setWords(u, p);
+  mapui.update(u);
+  // while the map covers the screen there is nothing 3D to draw
+  if (u < 0.53 && started) { raf = requestAnimationFrame(frame); return; }
 
   // the town shrinks to a point on the map as the camera leaves
   const shrink = smooth(0.835, 0.885, p);
   const s = lerp(1, 0.012, shrink * shrink * (3 - 2 * shrink));
-  town.visible = shrink < 1;
+  const gone = shrink >= 1;
+  for (const g of places) if (gone) g.visible = false;
   town.scale.setScalar(s);
   ground.material.opacity = 1 - smooth(0.80, 0.845, p);
   ground.visible = ground.material.opacity > 0.01;
 
   // only the places near the story are drawn and moved
-  const near = (i, a, b) => { const on = p > a && p < b; places[i].visible = on; return on; };
-  if (near(0, -1, 0.36) | (p > 0.8 && (places[0].visible = true))) {
-    host.hips.position.y = 0.92 + Math.sin(t * 1.6) * 0.004;
-    host.head.rotation.x = 0.32 + Math.sin(t * 0.8) * 0.02;
+  const near = (i, a, b) => { const on = !gone && ((p > a && p < b) || p > 0.8); places[i].visible = on; return on; };
+  const middle = q > 0.5 && q < 0.64;          // the meeting: the city is out of sight
+  const hostOn = false;                          // the train and its city are not in this version of the story
+  near(0, -1, -1);
+  places[0].visible = hostOn;
+  if (hostOn) {
+    host.hips.position.y = 0.56 + Math.sin(t * 1.6) * 0.004;
+    host.head.rotation.x = 0.62 + Math.sin(t * 0.8) * 0.02;
+    // While we ride with him, the city slides past the windows. Once the camera has stepped out of the
+    // window, the city keeps still and the train shoots off down the line, taking him with it.
+    if (q < 0.302) {
+      TRAIN.offset = (TRAIN.offset || 0) - dt * 11;
+      CITY.place(TRAIN.offset);
+      TRAIN.gone = 0;
+      TRAIN.x = (TRAIN.x || 0) * Math.exp(-dt * 10);          // scrolled back in: it backs into place
+    } else {
+      TRAIN.gone = Math.min(TRAIN.gone + dt, 8);
+      TRAIN.x = 11 * TRAIN.gone + 9 * TRAIN.gone * TRAIN.gone;
+    }
+    TRAIN.group.position.x = TRAIN.x;
+    TRAIN.group.visible = TRAIN.x < 150;
     // the form is filled in while the first words are up, the map and the people joining while the second are
-    const ps = p < 0.215 ? 0.47 * clamp((p - 0.135) / 0.08) : 0.47 + 0.53 * clamp((p - 0.215) / 0.08);
-    if (Math.abs(ps - lastPhone) > 0.0008 || (p < 0.34 && (t * 4 | 0) !== ((t - dt) * 4 | 0))) { lastPhone = ps; drawPhone(ps, t); }
-    phoneLight.intensity = 0.45 + Math.sin(t * 2) * 0.05;
+    const ps = p < 0.205 ? 0.47 * clamp((p - 0.13) / 0.075) : 0.47 + 0.53 * clamp((p - 0.205) / 0.06);
+    const due = Math.abs(ps - lastPhone) > 0.0008 ? t - phoneDrawn > (touch ? 0.05 : 0.03) : p < 0.34 && t - phoneDrawn > 0.25;
+    if (due) { lastPhone = ps; phoneDrawn = t; drawPhone(ps, t); }
   }
-  if (near(1, 0.3, 0.56) | (p > 0.8 && (places[1].visible = true))) {
-    runPivot.rotation.y = t * 0.5;
-    for (const P of runners) poseRun(P, t);
+  const lit = 1 - shrink;
+  const inBed = q < 0.51 && !gone;
+  bedroom.visible = inBed;
+  if (inBed) playBedroom(q, t);
+  if (!(inBed && q >= 0.345)) {
+    lampLight.position.copy(PHONE.lamp); lampLight.color.setHex(0xdfe6ff);
+    lampLight.position.x += TRAIN.x || 0;                    // the carriage light leaves with the train
+    phoneLight.position.copy(PHONE.light);
+    phoneLight.position.x += TRAIN.x || 0; phoneLight.color.setHex(0xb9a0ff); phoneLight.distance = 2.2;
+    lampLight.intensity = places[0].visible ? 18 * lit : 0;
+    phoneLight.intensity = places[0].visible ? (0.45 + Math.sin(t * 2) * 0.05) * lit : 0;
   }
-  if (near(2, 0.44, 0.66) | (p > 0.8 && (places[2].visible = true))) {
+  const parkOn = near(1, 0.3, 0.56) && (!(q > 0.33 && q < 0.497) || p > 0.8);
+  places[1].visible = parkOn;
+  if (parkOn) {
+    // 8:00 in the park. The host and three others are waiting; the guest walks up; a wave, a high five; then they run.
+    const go = smooth(0.6, 0.64, q);
+    runAngle = go > 0 ? runAngle + dt * 0.5 * go : runAngle * Math.exp(-dt * 4);
+    runPivot.rotation.y = runAngle;
+    const m = clamp((q - 0.505) / 0.095), still = 1 - go;
+    const five = smooth(0.7, 0.8, m) * still, hop = Math.sin(smooth(0.8, 0.95, m) * Math.PI) * still;
+    runners.forEach((P, i) => {
+      poseRun(P, t, 9.5, go);
+      if (still <= 0) { P.g.position.copy(P.slot); P.g.rotation.y = P.face; return; }
+      if (i === 0) {                                 // the host turns to the newcomer, waves, then a high five
+        const wave = smooth(0.12, 0.3, m) * (1 - smooth(0.55, 0.68, m)) * still;
+        P.g.rotation.y = lerp(Math.PI / 2, P.face, go);
+        P.L.arm.rotation.z = (2.55 + Math.sin(t * 9) * 0.22) * wave;
+        P.L.arm.rotation.x = -2.45 * five;
+        P.L.elbow.rotation.x = lerp(P.L.elbow.rotation.x, -0.15, Math.max(five, wave));
+        P.head.rotation.x = -0.1 * still;
+        P.g.position.set(P.slot.x, hop * 0.12, P.slot.z);
+      } else if (i === 1) {                          // the guest walks in from the edge of the park
+        const come = smooth(0, 0.68, m), walking = (1 - smooth(0.6, 0.7, m)) * still;
+        P.g.position.set(lerp(RUN_R + 6.8, RUN_R + 0.98, come), hop * 0.12, lerp(-0.9, 0.05, come)).lerp(P.slot, go);
+        P.g.rotation.y = lerp(-Math.PI / 2, P.face - Math.PI * 2, go);
+        if (walking > 0) {
+          const ph = t * 5.2;
+          for (const [limb, off] of [[P.L, 0], [P.R, Math.PI]]) {
+            const sw = Math.sin(ph + off) * walking;
+            limb.leg.rotation.x = -sw * 0.5; limb.knee.rotation.x = (0.08 + 0.5 * (0.5 + 0.5 * Math.sin(ph + off - 1.3))) * walking;
+            limb.arm.rotation.x = sw * 0.45;
+          }
+          P.hips.position.y = 0.91 + Math.abs(Math.sin(ph)) * 0.025 * walking;
+        }
+        const wave = smooth(0.3, 0.45, m) * (1 - smooth(0.58, 0.68, m)) * still;
+        P.R.arm.rotation.z = -(2.5 + Math.sin(t * 9 + 1) * 0.22) * wave;
+        P.R.arm.rotation.x = lerp(P.R.arm.rotation.x, -2.45, five);
+        P.R.elbow.rotation.x = lerp(P.R.elbow.rotation.x, -0.15, Math.max(five, wave));
+      } else {                                       // the others stand about, watch, and one of them waves too
+        P.g.position.copy(P.slot); P.g.rotation.y = P.face;
+        P.head.rotation.y = -0.5 * still * smooth(0.1, 0.4, m);
+        if (i === 2) {
+          const wave = smooth(0.35, 0.5, m) * (1 - smooth(0.75, 0.9, m)) * still;
+          P.R.arm.rotation.z = -(2.5 + Math.sin(t * 8) * 0.25) * wave;
+          P.R.elbow.rotation.x = lerp(P.R.elbow.rotation.x, -0.2, wave);
+        }
+      }
+    });
+  }
+  if (near(2, 0.44, 0.66)) {
     for (const P of sitters) poseSit(P, t);
     for (const puff of steam) {
       const u = (t * 0.35 + puff.phase) % 1;
@@ -1048,14 +1690,16 @@ function frame() {
       puff.m.material.opacity = 0.45 * Math.sin(u * Math.PI);
     }
   }
-  if (near(3, 0.55, 0.76) | (p > 0.8 && (places[3].visible = true))) {
+  if (near(3, 0.55, 0.76)) {
     walkPivot.rotation.y = t * 0.2;
     for (const P of walkers) poseWalk(P, t);
     dog.legs.forEach((l, i) => { l.rotation.x = Math.sin(t * 11 + (i % 3) * 2.1) * 0.6; });
     dog.tail.rotation.set(-0.7, 0, Math.sin(t * 14) * 0.6);
     dog.position.y = Math.abs(Math.sin(t * 11)) * 0.03;
   }
-  if (near(4, 0.66, 2)) {
+  const dusk = near(4, 0.66, 2);
+  for (const flood of floods) flood.intensity = dusk ? 60 * lit : 0;
+  if (dusk) {
     // the ball goes round in a star: 0 → 2 → 4 → 1 → 3
     const beat = t * 0.9, n = Math.floor(beat), u = beat - n;
     const from = players[(n * 2) % 5], to = players[((n + 1) * 2) % 5];
@@ -1077,15 +1721,16 @@ function frame() {
     });
   }
   for (const b of beacons) {
+    b.g.visible = false;                         // the big pin over these scenes is drawn in the page now (js/mapui.js)
     b.g.position.y = b.base + Math.sin(t * 1.3 + b.phase) * 0.25;
     b.g.rotation.y = t * 0.6 + b.phase;
   }
 
   // camera
   town.updateMatrixWorld(true);
-  cameraAt(p);
+  cameraAt(q);
   // on a tall, narrow screen stand further back so the whole group fits
-  if (aspect < 0.9) camPos.sub(camLook).multiplyScalar(1 + 0.32 * smooth(0.33, 0.34, p) * (1 - smooth(0.79, 0.83, p))).add(camLook);
+  if (aspect < 0.9) camPos.sub(camLook).multiplyScalar(1 + 0.32 * smooth(0.33, 0.34, p) * (1 - smooth(0.79, 0.83, p)) + 0.22 * smooth(0.14, 0.18, p) * (1 - smooth(0.285, 0.31, p))).add(camLook);
   const pan = smooth(0.89, 0.97, p) * Math.sin(t * 0.11) * (MAP.pan || 0);
   camPos.x += pan; camLook.x += pan;
   // a little life in the hand that holds the camera
@@ -1097,7 +1742,8 @@ function frame() {
   // leave room for the words: push the scene to the right on wide screens, and up on tall ones
   const room = (1 - 0.5 * smooth(0.14, 0.18, p) * (1 - smooth(0.33, 0.34, p))) * (1 - smooth(0.81, 0.86, p));
   const end = smooth(0.88, 0.94, p);
-  const dx = aspect > 1.2 ? -0.11 * room : 0, dy = (aspect > 1.2 ? 0.02 : 0.11) * room + (aspect > 1.2 ? 0.13 : 0.16) * end;
+  const dx = aspect > 1.2 ? -0.11 * room : 0, dy = (aspect > 1.2 ? 0.02 : 0.13 + 0.07 * (1 - smooth(0.05, 0.1, p))) * room + (aspect > 1.2 ? 0.13 : 0.16) * end
+    + (aspect > 1.2 ? 0 : 0.11 * smooth(0.14, 0.18, p) * (1 - smooth(0.3, 0.33, p)));
   camera.setViewOffset(W, H, dx * W, dy * H, W, H);
   camera.near = clamp(reach * 0.08, 0.01, 2);
   camera.updateProjectionMatrix();
@@ -1108,7 +1754,7 @@ function frame() {
   look.copy(camLook);
   sun.target.position.copy(look);
   sun.position.copy(look).addScaledVector(sunDir, 40);
-  sun.castShadow = p < 0.84;
+  renderer.shadowMap.autoUpdate = p < 0.87;      // nothing left to cast a shadow once only the map is in view
 
   // the world map
   const mapIn = smooth(0.815, 0.86, p);
@@ -1117,28 +1763,38 @@ function frame() {
     const out = smooth(0.83, 0.955, p);
     const reachNow = lerp(0, MAP.far, out);
     dots.material.uniforms.reach.value = reachNow + 26 * mapIn;
-    const size = Math.max(0.05, camera.position.length() * 0.0072);
+    // each pin is drawn about the same size on screen, whatever the device, and always faces the camera
+    const perPixel = (2 * camera.position.distanceTo(camLook) * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / H;
+    const narrow = aspect < 0.9;
+    const size = (narrow ? 30 : clamp(H * 0.044, 30, 44)) * perPixel;
+    londonMap.material.opacity = mapIn;
+    dummy.quaternion.copy(camera.quaternion);
     pinSpots.forEach((spot, i) => {
-      const pop = i === 0 ? smooth(0.85, 0.885, p) : clamp((reachNow - spot.far) / 22);
+      const pop = narrow && !spot.phone ? 0 : spot.home ? smooth(0.85, 0.885, p) : clamp((reachNow - spot.far) / 1.6);
       const k = pop <= 0 ? 0 : backOut(pop) * size * spot.s;
       dummy.position.copy(spot.p);
-      dummy.position.y = pop > 0 ? Math.sin(t * 1.7 + spot.phase) * size * 0.12 + size * 0.12 : 0;
+      dummy.position.y = pop > 0 ? (0.5 + 0.5 * Math.sin(t * 1.7 + spot.phase)) * size * 0.1 : 0;
       dummy.scale.setScalar(Math.max(k, 0.0001));
-      dummy.rotation.y = t * 0.5 + spot.phase;
       dummy.updateMatrix();
-      mapPins.setMatrixAt(i, dummy.matrix);
+      pinMeshes[spot.k].setMatrixAt(spot.j, dummy.matrix);
     });
-    mapPins.instanceMatrix.needsUpdate = true;
-    mapPins.count = pinSpots.length;
-    glows.material.size = size * 8;
-    glows.material.opacity = out * 0.75;
-    glows.geometry.setDrawRange(0, Math.max(1, pinSpots.filter((sp) => sp.far < reachNow).length));
+    for (const m of pinMeshes) m.instanceMatrix.needsUpdate = true;
     const ring = (t * 0.5) % 1;
-    pulse.scale.setScalar(size * (1 + ring * 7));
+    pulse.scale.setScalar(size * 0.45 * (1 + ring * 5));
     pulse.material.opacity = smooth(0.87, 0.9, p) * (1 - ring) * 0.8;
   }
 
   renderer.render(scene, camera);
+  if (window.__tourStats) window.__tourStats = { calls: renderer.info.render.calls, q: +q.toFixed(4), cam: camera.position.toArray().map((n) => +n.toFixed(2)) };
+  // if the device can't keep up, draw fewer pixels rather than drop frames
+  // (an iPhone in Low Power Mode runs at 30 frames a second by design: that is not counted as slow)
+  slow = dt > 0.042 ? slow + 1 : Math.max(0, slow - 0.5);
+  if (slow > 24 && dpr > 1) {
+    slow = 0;
+    dpr = Math.max(1, dpr - 0.4);
+    renderer.setPixelRatio(dpr);
+    resize();
+  }
   if (!started) { started = true; root.classList.add('tour-ready'); }
   raf = requestAnimationFrame(frame);
 }
@@ -1147,18 +1803,19 @@ function kick() {
   if (!raf && visible && !document.hidden) { clock.update(); raf = requestAnimationFrame(frame); }
 }
 
-// pins sorted by distance, so the glow can be drawn for just the ones that have landed
-{
-  const order = pinSpots.map((s, i) => i).sort((a, b) => pinSpots[a].far - pinSpots[b].far);
-  const sorted = order.map((i) => pinSpots[i]);
-  pinSpots.splice(0, pinSpots.length, ...sorted);
-  glows.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pinSpots.flatMap((s) => [s.p.x, 0.05, s.p.z]), 3));
-}
-
 resize();
 readScroll();
 pNow = target;
 drawPhone(0, 0);
+// Build every material and send every texture to the graphics chip now, behind the fade-in,
+// so nothing stutters the first time a new place scrolls into view.
+world.visible = true;
+camera.position.set(0, 60, 120);
+camera.lookAt(0, 0, 0);
+setMood(0);
+renderer.compile(scene, camera);
+renderer.render(scene, camera);
+world.visible = false;
 if ('ResizeObserver' in window) new ResizeObserver(resize).observe(stage);
 else window.addEventListener('resize', resize);
 window.addEventListener('scroll', kick, { passive: true });
