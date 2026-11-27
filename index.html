@@ -15,7 +15,7 @@
   <link rel="icon" href="images/icon.png">
   <link rel="apple-touch-icon" href="images/apple-icon.png">
   <link rel="preload" href="fonts/open-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="css/styles.css?v=18">
+  <link rel="stylesheet" href="css/styles.css?v=20">
   <script>
     /* The 3D tour runs only where the browser can draw it. Visitors who asked their device for less motion
        get the still page with a "See it in 3D" button instead. ?3d=0 switches it off, ?3d=1 forces it on. */
@@ -36,7 +36,7 @@
         }
       } catch (e) { return; }
       root.classList.add('tour');
-      ['js/vendor/three.module.min.js', 'js/land.js', 'js/tour.js?v=18'].forEach(function (href) {
+      ['js/vendor/three.module.min.js', 'js/land.js', 'js/tour.js?v=20'].forEach(function (href) {
         var link = document.createElement('link');
         link.rel = 'modulepreload'; link.href = href;
         document.head.appendChild(link);
@@ -104,8 +104,8 @@
           </article>
 
           <article class="cap cap--big" data-from="0.625" data-to="0.69">
-            <h2>Then coffee. ☕</h2>
-            <p>Same five. New friends.</p>
+            <h2>🏃☕️ Run &amp; coffee.</h2>
+            <p>One meetup. Run, then coffee with the same five.</p>
           </article>
 
           <article class="cap cap--big" data-from="0.695" data-to="0.8">
@@ -129,7 +129,7 @@
           <li data-at="0.14">Pick a pin</li>
           <li data-at="0.3">I'm in</li>
           <li data-at="0.455">Turn up</li>
-          <li data-at="0.625">Coffee</li>
+          <li data-at="0.625">Run &amp; coffee</li>
           <li data-at="0.695">More</li>
           <li data-at="0.93">Your turn</li>
         </ol>
@@ -204,6 +204,6 @@
     </div>
   </footer>
 
-  <script src="js/main.js?v=18" defer></script>
+  <script src="js/main.js?v=20" defer></script>
 </body>
 </html>

@@ -9,7 +9,7 @@
    The people, places and pins are an illustration, not live data. */
 import * as THREE from './vendor/three.module.min.js';
 import { LAND } from './land.js';
-import { createMapUI } from './mapui.js';
+import { createMapUI } from './mapui.js?v=20';   // versioned with the page, so a cached old copy is never mixed in
 
 const root = document.documentElement;
 const story = document.querySelector('.story');
@@ -143,8 +143,18 @@ const G = {
   sphere: new THREE.SphereGeometry(1, 32, 24),
   box: new THREE.BoxGeometry(1, 1, 1),
   cyl: new THREE.CylinderGeometry(1, 1, 1, 20),
-  cone: new THREE.ConeGeometry(1, 1, 9),
-  blob: new THREE.IcosahedronGeometry(1, 1),
+  cone: new THREE.ConeGeometry(1, 1, 20),
+  blob: (() => {                       // a lumpy sphere: reads as a clump of leaves, not a ball
+    const g = new THREE.SphereGeometry(1, 30, 22), p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      const n = 1 + 0.09 * Math.sin(x * 5.1 + 1.3) * Math.sin(y * 4.7 + 0.7) * Math.sin(z * 5.9 + 2.1)
+        + 0.05 * Math.sin(x * 11 + y * 9 + z * 7) + 0.03 * Math.sin(x * 19 - z * 17 + y * 3);
+      p.setXYZ(i, x * n, y * n, z * n);
+    }
+    g.computeVertexNormals();
+    return g;
+  })(),
 };
 function mesh(geo, material, parent, pos, scale, rot) {
   const m = new THREE.Mesh(geo, material);
@@ -179,7 +189,24 @@ const SPOT = [v(-62, 0, 0), v(-28, 0, -6), v(2, 0, 8), v(32, 0, -8), v(62, 0, 6)
 const at = (i, x, y, z) => v(SPOT[i].x + x, y, SPOT[i].z + z);
 const places = SPOT.map((c) => { const g = new THREE.Group(); g.position.copy(c); town.add(g); return g; });
 
-const ground = mesh(new THREE.CircleGeometry(260, 64), surf({ color: 0x4f8f5c, roughness: 1, transparent: true }), town, [0, 0, 0], 1, [-Math.PI / 2, 0, 0]);
+// Grass: a pale texture of blades and speckles, tinted by each lawn's own colour.
+const GRASS = canvasTex(512, 512, (g, w, h) => {
+  g.fillStyle = '#f4f7f1'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 9000; i++) {
+    const x = rnd() * w, y = rnd() * h, l = 3 + rnd() * 7, a = -Math.PI / 2 + (rnd() - 0.5) * 0.9;
+    g.strokeStyle = pick(['#dfe9da', '#d2e0cb', '#c6d7bf', '#ffffff', '#e9f0e5', '#bccfb3']);
+    g.lineWidth = 1 + rnd() * 1.4;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
+  }
+});
+GRASS.wrapS = GRASS.wrapT = THREE.RepeatWrapping;
+function grass(repeat) {
+  const t = GRASS.clone();
+  t.repeat.set(repeat, repeat);
+  t.needsUpdate = true;
+  return t;
+}
+const ground = mesh(new THREE.CircleGeometry(260, 96), surf({ color: 0x4f8f5c, map: grass(110), roughness: 1, transparent: true }), town, [0, 0, 0], 1, [-Math.PI / 2, 0, 0]);
 ground.castShadow = false;
 
 function tree(parent, x, z, s = 1, colors = [0x3f8f5a, 0x4fa368, 0x2f7a52]) {
@@ -188,10 +215,9 @@ function tree(parent, x, z, s = 1, colors = [0x3f8f5a, 0x4fa368, 0x2f7a52]) {
   g.scale.setScalar(s);
   g.rotation.y = rr(0, 6);
   mesh(G.cyl, mat(0x6b4a3a), g, [0, 0.8, 0], [0.13, 1.6, 0.13]);
-  const flat = { flatShading: true };
-  mesh(G.blob, mat(pick(colors), 0.9, flat), g, [0, 2.3, 0], [1.15, 1.25, 1.15]);
-  mesh(G.blob, mat(pick(colors), 0.9, flat), g, [0.55, 1.9, 0.2], 0.72);
-  mesh(G.blob, mat(pick(colors), 0.9, flat), g, [-0.5, 2.0, -0.25], 0.66);
+  mesh(G.blob, mat(pick(colors), 0.85), g, [0, 2.3, 0], [1.15, 1.25, 1.15]);
+  mesh(G.blob, mat(pick(colors), 0.85), g, [0.55, 1.9, 0.2], 0.72);
+  mesh(G.blob, mat(pick(colors), 0.85), g, [-0.5, 2.0, -0.25], 0.66);
   parent.add(g);
   return g;
 }
@@ -200,7 +226,7 @@ function pine(parent, x, z, s = 1) {
   g.position.set(x, 0, z);
   g.scale.setScalar(s);
   mesh(G.cyl, mat(0x5a4032), g, [0, 0.4, 0], [0.11, 0.8, 0.11]);
-  const m = mat(pick([0x2f6f55, 0x2a6650, 0x37785a]), 0.9, { flatShading: true });
+  const m = mat(pick([0x2f6f55, 0x2a6650, 0x37785a]), 0.85);
   mesh(G.cone, m, g, [0, 1.3, 0], [0.95, 1.4, 0.95]);
   mesh(G.cone, m, g, [0, 2.1, 0], [0.72, 1.2, 0.72]);
   mesh(G.cone, m, g, [0, 2.8, 0], [0.48, 1.0, 0.48]);
@@ -216,7 +242,7 @@ function ringOf(parent, count, r0, r1, make, skip) {
   }
 }
 function patch(parent, radius, color) {
-  const m = mesh(new THREE.CircleGeometry(radius, 48), mat(color, 1), parent, [0, 0.02, 0], 1, [-Math.PI / 2, 0, 0]);
+  const m = mesh(new THREE.CircleGeometry(radius, 64), surf({ color, map: grass(radius / 2.2), roughness: 1 }), parent, [0, 0.02, 0], 1, [-Math.PI / 2, 0, 0]);
   m.castShadow = false;
   return m;
 }
@@ -227,64 +253,106 @@ const HAIRS = [0x2a1d18, 0x4a2f20, 0x151318, 0x8a5a2c, 0xd7b46a, 0x6b2e2e];
 const TOPS = [0x7c3aed, 0xec4899, 0xfbbf24, 0x38bdf8, 0x34d399, 0xf97316, 0xffffff, 0xc026d3];
 const BOTTOMS = [0x1f2340, 0x2b2f55, 0x3b3350, 0x23395d, 0x40304a];
 const people = [];
+// People. Each joint (hips, head, upper arm, forearm, thigh, shin) is built from simple shapes, then its shapes
+// are joined into one mesh coloured per corner, so a whole person is ten draws however detailed.
+const PERSON_MAT = surf({ vertexColors: true, roughness: 0.68 });
+const HAIR_CAP = new THREE.SphereGeometry(1, 28, 16, 0, Math.PI * 2, 0, Math.PI * 0.45);
+const SMILE = new THREE.TorusGeometry(1, 0.2, 6, 16, Math.PI);
+function fuse(group, castsOnPhone) {
+  const pos = [], nor = [], col = [];
+  for (const m of group.children.filter((c) => c.isMesh)) {
+    m.updateMatrix();
+    const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+    g.applyMatrix4(m.matrix);
+    const p = g.attributes.position.array, n = g.attributes.normal.array, c = m.material.color;
+    for (let i = 0; i < p.length; i += 3) { pos.push(p[i], p[i + 1], p[i + 2]); nor.push(n[i], n[i + 1], n[i + 2]); col.push(c.r, c.g, c.b); }
+    g.dispose();
+    group.remove(m);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  const m = new THREE.Mesh(geo, PERSON_MAT);
+  m.castShadow = touch ? castsOnPhone : true;
+  m.receiveShadow = true;
+  m.userData.bake = true;
+  group.add(m);
+}
 function person(o = {}) {
-  const skin = mat(o.skin ?? pick(SKINS), 0.7);
-  const top = mat(o.top ?? pick(TOPS), 0.8);
-  const bottom = mat(o.bottom ?? pick(BOTTOMS), 0.85);
-  const hair = mat(o.hair ?? pick(HAIRS), 0.9);
+  const skin = mat(o.skin ?? pick(SKINS), 0.6);
+  const top = mat(o.top ?? pick(TOPS), 0.85);
+  const bottom = mat(o.bottom ?? pick(BOTTOMS), 0.9);
+  const hair = mat(o.hair ?? pick(HAIRS), 0.85);
   const shoe = mat(o.shoes ?? pick([0xffffff, 0xf43f5e, 0x22d3ee, 0xfde047]), 0.6);
+  const sleeve = o.sleeve !== undefined ? mat(o.sleeve, 0.85) : null;          // a long-sleeved shirt
+  const white = mat(0xf7f5f2, 0.4), iris = mat(0x2a1d18, 0.3), lip = mat(0xa45a50, 0.6), sole = mat(0xefece6, 0.8);
   const g = new THREE.Group();
   const hips = new THREE.Group();
   hips.position.y = 0.92;
   g.add(hips);
-  mesh(capsule(0.17, 0.34), top, hips, [0, 0.33, 0]);
-  if (o.gilet) {                       // a quarter-zip gilet: a stand-up collar and a short silver zip
-    mesh(G.cyl, top, hips, [0, 0.635, 0.005], [0.105, 0.075, 0.1]);
-    mesh(G.box, mat(0xd7d7e0, 0.3), hips, [0, 0.55, 0.171], [0.014, 0.13, 0.01]);
-    mesh(G.box, mat(o.sleeve, 0.8), hips, [0, 0.665, 0.07], [0.07, 0.03, 0.03]);   // the shirt collar showing
-    for (const y of [0.24, 0.36, 0.48]) mesh(G.cyl, mat(0x2e1c10, 0.9), hips, [0, y, 0], [0.174, 0.012, 0.174]);   // quilted stitching
+  // body: a chest wider than the waist, a neck
+  mesh(capsule(0.14, 0.2), top, hips, [0, 0.36, 0], [1.18, 1, 0.72]);
+  mesh(capsule(0.125, 0.06), bottom, hips, [0, 0.05, 0], [1.12, 1, 0.78]);
+  mesh(G.cyl, skin, hips, [0, 0.6, 0], [0.043, 0.1, 0.043]);
+  if (o.gilet) {                       // a quarter-zip gilet: a stand-up collar, a short silver zip, quilting
+    mesh(G.cyl, top, hips, [0, 0.6, 0.004], [0.075, 0.06, 0.07]);
+    mesh(G.box, mat(0xd7d7e0, 0.3), hips, [0, 0.5, 0.102], [0.012, 0.12, 0.008]);
+    for (const y of [0.3, 0.4, 0.5]) mesh(G.cyl, mat(0x2e1c10, 0.9), hips, [0, y, 0], [0.167, 0.01, 0.103]);
   }
-  mesh(capsule(0.165, 0.06), bottom, hips, [0, 0.03, 0]);
+  // the head: skull, jaw, nose, ears, eyes, brows, a small smile, hair
   const head = new THREE.Group();
-  head.position.y = 0.66;
+  head.position.y = 0.62;
   hips.add(head);
-  mesh(G.sphere, skin, head, [0, 0.14, 0], 0.155);
-  const cap = mesh(new THREE.SphereGeometry(0.165, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.55), hair, head, [0, 0.145, -0.008], 1, [-0.32, 0, 0]);
-  cap.receiveShadow = false;
+  mesh(G.sphere, skin, head, [0, 0.13, 0], [0.098, 0.12, 0.108]);
+  mesh(G.sphere, skin, head, [0, 0.075, 0.03], [0.072, 0.065, 0.075]);
+  mesh(G.sphere, skin, head, [0, 0.12, 0.106], [0.016, 0.022, 0.02]);
+  for (const s of [1, -1]) {
+    mesh(G.sphere, skin, head, [s * 0.097, 0.125, 0], [0.014, 0.026, 0.02]);
+    mesh(G.sphere, white, head, [s * 0.036, 0.15, 0.088], 0.016);
+    mesh(G.sphere, iris, head, [s * 0.036, 0.15, 0.1], 0.0095);
+    mesh(G.box, hair, head, [s * 0.037, 0.178, 0.095], [0.036, 0.007, 0.012], [0, 0, -s * 0.08]);
+  }
+  mesh(SMILE, lip, head, [0, 0.083, 0.104], 0.018, [0.25, 0, Math.PI]);
+  mesh(HAIR_CAP, hair, head, [0, 0.135, -0.01], [0.105, 0.128, 0.118], [-0.35, 0, 0]);
+  mesh(G.sphere, hair, head, [0, 0.12, -0.035], [0.1, 0.112, 0.092]);
   const style = o.style ?? Math.floor(rnd() * 3);
-  if (style === 1) mesh(G.sphere, hair, head, [0, 0.3, -0.07], 0.075);                 // a bun
-  if (style === 2) mesh(capsule(0.05, 0.16), hair, head, [0, 0.06, -0.17], 1, [0.35, 0, 0]);   // a ponytail
-  const eye = mat(0x1b1626, 0.4);
-  mesh(G.sphere, eye, head, [0.055, 0.16, 0.142], 0.017).castShadow = false;
-  mesh(G.sphere, eye, head, [-0.055, 0.16, 0.142], 0.017).castShadow = false;
+  if (style === 1) mesh(G.sphere, hair, head, [0, 0.235, -0.075], 0.05);                              // a bun
+  if (style === 2) mesh(capsule(0.035, 0.12), hair, head, [0, 0.07, -0.13], 1, [0.35, 0, 0]);       // a ponytail
   const limb = (side) => {
     const arm = new THREE.Group();
-    arm.position.set(side * 0.235, 0.52, 0);
+    arm.position.set(side * 0.205, 0.5, 0);
     hips.add(arm);
-    mesh(capsule(0.055, 0.2), o.sleeve !== undefined ? mat(o.sleeve, 0.8) : o.sleeves === false ? skin : top, arm, [0, -0.14, 0]);
+    const tee = o.sleeves === false ? skin : top;
+    mesh(G.sphere, sleeve || tee, arm, [0, 0, 0], 0.058);
+    if (!sleeve && o.sleeves !== false) mesh(capsule(0.05, 0.07), top, arm, [0, -0.07, 0]);
+    mesh(capsule(0.042, 0.19), sleeve || skin, arm, [0, -0.14, 0]);
     const elbow = new THREE.Group();
     elbow.position.y = -0.29;
     arm.add(elbow);
-    mesh(capsule(0.048, 0.18), skin, elbow, [0, -0.13, 0]);
-    const hand = mesh(G.sphere, skin, elbow, [0, -0.28, 0], 0.058);
+    mesh(capsule(0.037, 0.17), sleeve || skin, elbow, [0, -0.13, 0]);
+    mesh(G.sphere, skin, elbow, [0, -0.27, 0.005], [0.035, 0.05, 0.022]);
+    const hand = new THREE.Object3D();
+    hand.position.set(0, -0.27, 0);
+    elbow.add(hand);
     const leg = new THREE.Group();
-    leg.position.set(side * 0.095, 0, 0);
+    leg.position.set(side * 0.085, 0, 0);
     hips.add(leg);
-    mesh(capsule(0.078, 0.26), bottom, leg, [0, -0.2, 0]);
+    mesh(capsule(0.07, 0.26), o.shorts ? skin : bottom, leg, [0, -0.2, 0]);
+    if (o.shorts) mesh(capsule(0.078, 0.12), bottom, leg, [0, -0.08, 0]);
     const knee = new THREE.Group();
     knee.position.y = -0.43;
     leg.add(knee);
-    mesh(capsule(0.06, 0.26), o.shorts ? skin : bottom, knee, [0, -0.19, 0]);
-    mesh(G.box, shoe, knee, [0, -0.43, 0.05], [0.11, 0.09, 0.24]);
+    mesh(capsule(0.052, 0.27), o.shorts ? skin : bottom, knee, [0, -0.19, 0]);
+    if (o.shorts) mesh(G.cyl, white, knee, [0, -0.37, 0], [0.05, 0.06, 0.05]);
+    mesh(capsule(0.048, 0.13), shoe, knee, [0, -0.425, 0.045], [1.15, 1, 0.8], [Math.PI / 2, 0, 0]);
+    mesh(capsule(0.048, 0.13), sole, knee, [0, -0.462, 0.048], [1.18, 1.04, 0.32], [Math.PI / 2, 0, 0]);   // a trainer's white sole
+    for (const [part, big] of [[arm, false], [elbow, false], [leg, true], [knee, true]]) fuse(part, big);
     return { arm, elbow, hand, leg, knee };
   };
   const P = { g, hips, head, L: limb(1), R: limb(-1), phase: rr(0, 6), s: o.h ?? rr(0.9, 1.02) };
-  g.traverse((m) => { if (m.isMesh) m.userData.bake = true; });
-  // on a phone only the body and legs throw a shadow: the small parts cost a draw each and are barely seen
-  if (touch) {
-    const big = [capsule(0.17, 0.34), capsule(0.078, 0.26), capsule(0.06, 0.26)];
-    g.traverse((m) => { if (m.isMesh) m.castShadow = big.includes(m.geometry); });
-  }
+  fuse(hips, true);
+  fuse(head, false);
   g.scale.setScalar(P.s);
   people.push(P);
   return P;
@@ -942,17 +1010,19 @@ function bake(place, moving) {
   const used = [];
   place.traverse((o) => {
     const m = o.material;
-    if (!o.isMesh || (!o.castShadow && !o.userData.bake) || !(m.isMeshStandardMaterial || m.isMeshLambertMaterial) || m.map || m.transparent || m.vertexColors || m.metalness > 0) return;
+    if (!o.isMesh || (!o.castShadow && !o.userData.bake) || !(m.isMeshStandardMaterial || m.isMeshLambertMaterial) || m.map || m.transparent || m.metalness > 0 || (m.vertexColors && !o.geometry.attributes.color)) return;
     for (let a = o; a && a !== place; a = a.parent) if (moving.includes(a)) return;
     const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
     g.applyMatrix4(local.multiplyMatrices(inverse, o.matrixWorld));
     const key = m.flatShading ? 'flat' : 'smooth';
     if (!groups.has(key)) groups.set(key, { pos: [], nor: [], col: [] });
     const out = groups.get(key), pos = g.attributes.position.array, nor = g.attributes.normal.array;
+    const cols = m.vertexColors ? g.attributes.color.array : null;
     for (let i = 0; i < pos.length; i += 3) {
       out.pos.push(pos[i], pos[i + 1], pos[i + 2]);
       out.nor.push(nor[i], nor[i + 1], nor[i + 2]);
-      out.col.push(m.color.r, m.color.g, m.color.b);
+      if (cols) out.col.push(cols[i], cols[i + 1], cols[i + 2]);
+      else out.col.push(m.color.r, m.color.g, m.color.b);
     }
     g.dispose();
     used.push(o);
@@ -1057,7 +1127,7 @@ pinSpots.forEach((s) => { s.far = Math.hypot(s.p.x, s.p.z); s.phase = rr(0, 6.28
 pinSpots.sort((a, b) => a.p.z - b.p.z);            // far ones first, so nearer pins are drawn over them
 // The pin itself is the app's own: a flat picture that always faces the camera, standing on its point.
 // Like the app, each pin shows its meetup's activity: one set of pins per emoji.
-const PIN_EMOJI = ['🏃', '☕', '🏃☕', '🚶', '⚽', '🧘', '🚶☕', '🎲', '🚴', '🏊', '🎾', '🍕', '🚴🍕'];      // some are two things in a row, like the app
+const PIN_EMOJI = ['🏃', '☕', '🏃☕️', '🚶', '⚽', '🧘', '🚶☕', '🎲', '🚴', '🏊', '🎾', '🍕', '🚴🍕'];      // some are two things in a row, like the app
 const pinCounts = PIN_EMOJI.map(() => 0);
 pinSpots.forEach((spot, i) => {
   spot.k = spot.home ? 0 : (i * 7) % PIN_EMOJI.length;

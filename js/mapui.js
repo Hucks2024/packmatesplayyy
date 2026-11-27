@@ -103,7 +103,7 @@ export function createMapUI(stage) {
     </div>
     <div class="mapui__card">
       <div class="mapui__grab"></div>
-      <p class="mapui__title">🏃☕ Run, then coffee</p>
+      <p class="mapui__title">🏃☕️ Run &amp; coffee</p>
       <p class="mapui__meta">Saturday 8:00 · The Park</p>
       <div class="mapui__going"><div class="mapui__faces">${FACES.map((f) => `<span class="mapui__face">${faceSVG(f)}</span>`).join('')}</div><span class="mapui__count">Be the first</span></div>
       <div class="mapui__btn"><span class="mapui__btn-in">I'm in</span><span class="mapui__btn-done">You're in ✓</span></div>
@@ -120,7 +120,7 @@ export function createMapUI(stage) {
   badge.className = 'mapui__badge';
   badge.setAttribute('aria-hidden', 'true');
   // one pin for each of coffee, a walk and a kickabout, the same pin the map uses; they swap as you scroll
-  badge.innerHTML = ['☕', '🚶', '⚽'].map((e) => `<span class="mapui__swap">${pinSVG('mapui__badge-pin', e)}</span>`).join('');
+  badge.innerHTML = ['🏃☕️', '🚶', '⚽'].map((e) => `<span class="mapui__swap">${pinSVG('mapui__badge-pin', e)}</span>`).join('');
   stage.insertBefore(badge, stage.querySelector('.caps'));
 
   const plane = el.querySelector('.mapui__plane');
@@ -146,13 +146,13 @@ export function createMapUI(stage) {
   spots.sort((a, b) => Math.hypot(a.x - 800, a.y - 780) - Math.hypot(b.x - 800, b.y - 780));
   const pinBox = el.querySelector('.mapui__pins');
   // like the app, some meetups are two things in a row: a run then a coffee, a walk then lunch
-  const ACTIVITIES = ['☕', '🏃☕', '🚶', '⚽', '🧘', '🚶☕', '🎲', '🚴', '🏊', '🏃🍳', '🎾', '🍕', '🧘☕', '🎨', '🥾', '🚴🍕', '🏀'];
+  const ACTIVITIES = ['☕', '🏃☕️', '🚶', '⚽', '🧘', '🚶☕️', '🎲', '🚴', '🏊', '🏃🍳', '🎾', '🍕', '🧘☕️', '🎨', '🥾', '🚴🍕', '🏀'];
   const pins = spots.map((s, i) => {
     const p = document.createElement('div');
     p.className = 'mapui__pin' + (s.target ? ' is-target' : '');
     p.style.left = `${s.x}px`;
     p.style.top = `${s.y}px`;
-    p.innerHTML = (s.target ? '<span class="mapui__ring"></span>' : '') + pinSVG('', s.target ? '🏃☕' : ACTIVITIES[i % ACTIVITIES.length]);
+    p.innerHTML = (s.target ? '<span class="mapui__ring"></span>' : '') + pinSVG('', s.target ? '🏃☕️' : ACTIVITIES[i % ACTIVITIES.length]);
     pinBox.appendChild(p);
     return { el: p, at: 0.015 + (i / spots.length) * 0.1, last: '' };
   });
