@@ -1064,13 +1064,13 @@ const pinMeshes = PIN_EMOJI.map((emoji, k) => {
   const tex = canvasTex(192, 256, (g, w, h) => {
     const s = h - 28, x = w / 2, y = h - 14;
     g.shadowColor = 'rgba(20,6,50,.55)'; g.shadowBlur = 10; g.shadowOffsetY = 3;
-    drawPin(g, x, y, s);
+    drawPin(g, x, y, s, false);                // the emoji pins have a plain head, so the white circle stays round
     g.shadowColor = 'transparent';
     g.fillStyle = '#fff';
-    g.beginPath(); g.arc(x, y - s * 0.645, s * 0.27, 0, 7); g.fill();
+    g.beginPath(); g.arc(x, y - s * 0.655, s * 0.255, 0, 7); g.fill();
     g.font = `${Math.round(s * 0.3)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText(emoji, x, y - s * 0.63);
+    g.fillText(emoji, x, y - s * 0.64);
   });
   // drawn into the depth buffer (cut out where see-through), so near pins cover far ones whatever their emoji
   const m = new THREE.InstancedMesh(pinPlane, new THREE.MeshBasicMaterial({ map: tex, alphaTest: 0.4, toneMapped: false, fog: false }), Math.max(1, pinCounts[k]));
@@ -1094,7 +1094,7 @@ function brandFill(g, x0, y0, x1, y1) {
   f.addColorStop(0, '#7c3aed'); f.addColorStop(0.55, '#c026d3'); f.addColorStop(1, '#ec4899');
   return f;
 }
-function drawPin(g, x, y, s) {            // x, y is the point of the pin; s its height
+function drawPin(g, x, y, s, people = true) {   // x, y is the point of the pin; s its height; people: the logo's three figures
   const w = s * 0.35;
   g.beginPath();
   g.moveTo(x, y);
@@ -1109,6 +1109,7 @@ function drawPin(g, x, y, s) {            // x, y is the point of the pin; s its
   g.fill();
   g.shadowColor = 'transparent';
   g.fillStyle = '#fff';
+  if (!people) return;
   for (const [dx, k, up] of [[-0.2, 0.78, 0], [0.2, 0.78, 0], [0, 1, 0.012]]) {
     const px = x + dx * s, head = s * 0.058 * k, body = s * 0.082 * k, base = y - s * (0.395 + up);
     g.beginPath(); g.arc(px, base - body * 2.25 - head * 1.25, head, 0, 7); g.fill();
