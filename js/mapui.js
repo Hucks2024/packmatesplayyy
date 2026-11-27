@@ -213,7 +213,7 @@ export function createMapUI(stage) {
     const grow = 1 / Math.pow(k / base, 0.65);             // pins don't grow as much as the map does
     pins.forEach((p, i) => {
       const pop = backOut(clamp((u - p.at) / 0.02));
-      const big = i === 0 ? 1 + 0.5 * z : 1;
+      const big = i === 0 ? (1 + 0.5 * z) * (1 - smooth(0.448, 0.462, u)) : 1;   // the clock takes its place in scene 4
       const v = `translate(-50%, -100%) scale(${(Math.max(0, pop) * grow * big).toFixed(3)})`;
       if (v !== p.last) { p.last = v; p.el.style.transform = v; }
     });
@@ -221,7 +221,11 @@ export function createMapUI(stage) {
 
     // 2 and 3: the card, the thumb, the faces
     const up = smooth(0.2, 0.25, u);
-    set(card, 'c', 'transform', `translateY(${((1 - up) * 120).toFixed(1)}%)`);
+    // On a phone, while the clock runs, the card slides down to show just its title and faces, to make room
+    // (it drops until its button is just off the bottom of the screen)
+    const drop = narrow ? smooth(0.445, 0.465, u) * Math.max(0, H - card.offsetTop - btn.offsetTop + 4) : 0;
+    toggle(stage, 'skip', 'is-dropped', drop > 1);
+    set(card, 'c', 'transform', `translateY(calc(${((1 - up) * 120).toFixed(1)}% + ${drop.toFixed(1)}px))`);
     set(card, 'co', 'opacity', up.toFixed(3));
     const tIn = smooth(0.305, 0.335, u) * (1 - smooth(0.36, 0.385, u));
     const press = Math.sin(clamp((u - 0.338) / 0.016) * Math.PI);
@@ -242,8 +246,9 @@ export function createMapUI(stage) {
     set(night, 'n', 'opacity', (dark * 0.72).toFixed(3));
     const cl = smooth(0.455, 0.47, u) * (1 - smooth(0.535, 0.55, u));
     set(clock, 'cl', 'opacity', cl.toFixed(3));
-    const fit = narrow ? clamp((room - 8) / (clock.offsetHeight || 200), 0.38, 1) : 1;
-    if (narrow) set(clock, 'ct', 'top', `${Math.round(gap.top + room / 2)}px`);
+    const free = room + drop;
+    const fit = narrow ? clamp((free - 12) / (clock.offsetHeight || 200), 0.45, 1) : 1;
+    if (narrow) set(clock, 'ct', 'top', `${Math.round(gap.top + free / 2)}px`);
     set(clock, 'cs', 'transform', `translate(-50%, -50%) scale(${(fit * (0.7 + 0.3 * backOut(clamp((u - 0.455) / 0.02)))).toFixed(3)})`);
     const mins = 21 * 60 + Math.round(660 * smooth(0.47, 0.525, u));
     minHand.setAttribute('transform', `rotate(${(mins % 60) * 6} 60 60)`);

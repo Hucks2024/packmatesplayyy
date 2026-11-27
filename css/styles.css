@@ -382,3 +382,4 @@ ol, ul { padding: 0; list-style: none; }
   .tour .cap--big p { font-size: 1.02rem; margin-top: 6px; }
   .tour .cap--top { top: calc(env(safe-area-inset-top) + 66px); }
 }
+.tour .stage.is-dropped .stage__skip { opacity: 0; transition: opacity .2s; }   /* the dropped card sits where the link is */
