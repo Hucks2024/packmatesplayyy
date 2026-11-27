@@ -9,12 +9,15 @@
    The people, places and pins are an illustration, not live data. */
 import * as THREE from './vendor/three.module.min.js';
 import { LAND } from './land.js';
+import { createMapUI } from './mapui.js';
 
 const root = document.documentElement;
 const story = document.querySelector('.story');
 const stage = document.querySelector('.stage');
 const canvas = document.querySelector('.stage__canvas');
 if (!story || !stage || !canvas) throw new Error('tour: markup missing');
+// scenes 1 to 4 (the map, the card, the tap, the clock) are drawn in the page, sharp on any screen: js/mapui.js
+const mapui = createMapUI(stage);
 
 /* ---------- Little helpers ---------- */
 const V3 = THREE.Vector3;
@@ -40,7 +43,7 @@ const smallScreen = Math.min(window.innerWidth, window.innerHeight) < 700;
 // Phones and tablets get a lighter version of the same scenes: a simpler surface model (no shine),
 // slightly fewer pixels, and shadows only from the people and the things that move.
 const touch = smallScreen || window.matchMedia('(pointer: coarse)').matches;
-let dpr = Math.min(window.devicePixelRatio || 1, touch ? 1.75 : 2);
+let dpr = Math.min(window.devicePixelRatio || 1, 2);
 function surf(params) {
   if (!touch) return new THREE.MeshStandardMaterial(params);
   const { roughness, metalness, ...rest } = params;
@@ -91,7 +94,7 @@ const hemi = new THREE.HemisphereLight(0xd5dcff, 0x3a2a55, 0.6);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffffff, 1);
 sun.castShadow = true;
-sun.shadow.mapSize.set(touch ? 1024 : 2048, touch ? 1024 : 2048);
+sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -13, right: 13, top: 13, bottom: -13, near: 1, far: 90 });
 sun.shadow.bias = -0.0006;
 sun.shadow.normalBias = 0.03;
@@ -137,7 +140,7 @@ const mat = (color, rough = 0.85, extra) => {
   return mats.get(key);
 };
 const G = {
-  sphere: new THREE.SphereGeometry(1, 20, 14),
+  sphere: new THREE.SphereGeometry(1, 32, 24),
   box: new THREE.BoxGeometry(1, 1, 1),
   cyl: new THREE.CylinderGeometry(1, 1, 1, 20),
   cone: new THREE.ConeGeometry(1, 1, 9),
@@ -156,7 +159,7 @@ function mesh(geo, material, parent, pos, scale, rot) {
 const capsules = new Map();
 const capsule = (r, len) => {
   const key = r + ':' + len;
-  if (!capsules.has(key)) capsules.set(key, new THREE.CapsuleGeometry(r, len, 5, 12));
+  if (!capsules.has(key)) capsules.set(key, new THREE.CapsuleGeometry(r, len, 8, 20));
   return capsules.get(key);
 };
 function canvasTex(w, h, draw) {
@@ -1318,6 +1321,7 @@ const caps = [...document.querySelectorAll('.cap')].map((el) => ({ el, from: +el
 const rail = [...document.querySelectorAll('.rail li')].map((el) => ({ el, at: +el.dataset.at }));
 const wash = document.querySelector('.wash');
 let washOn = false, washDawn = false, pastStage = null;
+const postPill = document.querySelector('.post-pill');
 const topbar = document.querySelector('.topbar');
 let lastRail = -1;
 // write a CSS variable only when its value changes, so a still frame costs the page nothing
@@ -1344,10 +1348,10 @@ function setWords(p, legacyP) {
   }
   setVar(stage, '--rail', (1 - smooth(0.9, 0.94, legacyP)).toFixed(2));
   // the one cut: out of the bedroom window into the morning, behind a warm wash
-  const o = smooth(0.487, 0.499, p) * (1 - smooth(0.505, 0.53, p));
+  const o = 0;                                   // no colour washes in this version
   setVar(wash, '--o', o.toFixed(2));
   if ((o > 0.005) !== washOn) { washOn = o > 0.005; wash.classList.toggle('is-on', washOn); }
-  if ((p > 0.42) !== washDawn) { washDawn = p > 0.42; wash.classList.toggle('wash--dawn', washDawn); }
+  if ((p > 0.9) !== washDawn) { washDawn = p > 0.9; if (postPill) postPill.classList.toggle('is-lit', washDawn); }   // scene 6: the Post button lights up
 }
 
 /* ---------- Size ---------- */
@@ -1355,6 +1359,7 @@ let W = 1, H = 1, aspect = 1, storyHeight = 1, barHeight = 60;
 function resize() {
   W = stage.clientWidth; H = stage.clientHeight;
   if (!W || !H) return;
+  mapui.resize(W, H);
   storyHeight = story.offsetHeight;
   barHeight = topbar ? topbar.offsetHeight : 60;
   aspect = W / H;
@@ -1381,6 +1386,16 @@ const clock = new THREE.Timer();
    parts written before (the day's moods, which places are drawn, the zoom out to the map) still read
    the old 0..1 clock, which simply stands still while the new middle plays. */
 const QMAX = 1.3;
+// The script: the scroll (u, 0..1) plays the map scenes in the page (u < 0.55), then these parts of the 3D story:
+// the five running (q 0.62 – 0.775), coffee, a walk and a kickabout (– 1.09), and the pull back to the world map.
+const SEG = [[0, 0.62], [0.5, 0.62], [0.62, 0.775], [0.8, 1.09], [1, 1.3]];
+function storyQ(u) {
+  for (let i = SEG.length - 2; i >= 0; i--) {
+    const [u0, q0] = SEG[i], [u1, q1] = SEG[i + 1];
+    if (u >= u0 && u1 > u0) return q0 + (q1 - q0) * clamp((u - u0) / (u1 - u0));
+  }
+  return SEG[0][1];
+}
 const oldClock = (q) => (q < 0.33 ? q : q < 0.64 ? Math.min(0.34, q) : q - 0.3);
 let runAngle = 0;
 let target = 0, pNow = 0, raf = 0, visible = true, lastPhone = -1, started = false, slow = 0, phoneDrawn = -1;
@@ -1388,7 +1403,7 @@ const look = v(), side = v();
 function readScroll() {
   const rect = story.getBoundingClientRect();
   const span = storyHeight - H;
-  target = span > 0 ? clamp(-rect.top / span) * QMAX : 0;
+  target = span > 0 ? clamp(-rect.top / span) : 0;
   visible = rect.bottom > 0 && rect.top < window.innerHeight;
   const past = rect.bottom <= barHeight + 6;
   if (past !== pastStage) { pastStage = past; root.classList.toggle('past-stage', past); }
@@ -1401,11 +1416,14 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.1), t = clock.getElapsed();
   pNow += (target - pNow) * (1 - Math.exp(-dt * 6.5));
   if (Math.abs(target - pNow) < 0.00005) pNow = target;
-  const q = pNow, p = oldClock(q);
+  const u = pNow, q = storyQ(u), p = oldClock(q);
 
   // night in the park and the bedroom, turning to sunrise as the night goes by on the wall clock
   setMood(q < 0.33 ? q : q < 0.63 ? lerp(0.32, 0.33, smooth(0.455, 0.495, q)) : p);
-  setWords(q, p);
+  setWords(u, p);
+  mapui.update(u);
+  // while the map covers the screen there is nothing 3D to draw
+  if (u < 0.53 && started) { raf = requestAnimationFrame(frame); return; }
 
   // the town shrinks to a point on the map as the camera leaves
   const shrink = smooth(0.835, 0.885, p);

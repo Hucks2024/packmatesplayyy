@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Packmates · find your people</title>
-  <meta name="description" content="Find your people. A free map of meetups near you: walks, runs, coffee and more. See how it works.">
+  <meta name="description" content="Meetups made simple. No messages. Just a time and a place. A free map of meetups near you.">
   <meta name="theme-color" content="#6d28d9">
   <meta name="apple-itunes-app" content="app-id=6822292523">
   <meta property="og:title" content="Packmates · find your people">
@@ -15,7 +15,7 @@
   <link rel="icon" href="images/icon.png">
   <link rel="apple-touch-icon" href="images/apple-icon.png">
   <link rel="preload" href="fonts/open-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="css/styles.css?v=7">
+  <link rel="stylesheet" href="css/styles.css?v=8">
   <script>
     /* The 3D tour runs only where the browser can draw it. Visitors who asked their device for less motion
        get the still page with a "See it in 3D" button instead. ?3d=0 switches it off, ?3d=1 forces it on. */
@@ -36,7 +36,7 @@
         }
       } catch (e) { return; }
       root.classList.add('tour');
-      ['js/vendor/three.module.min.js', 'js/land.js', 'js/tour.js?v=7'].forEach(function (href) {
+      ['js/vendor/three.module.min.js', 'js/land.js', 'js/tour.js?v=8'].forEach(function (href) {
         var link = document.createElement('link');
         link.rel = 'modulepreload'; link.href = href;
         document.head.appendChild(link);
@@ -73,10 +73,10 @@
         <div class="wash" aria-hidden="true"></div>
 
         <div class="caps">
-          <article class="cap cap--hero" data-from="-1" data-to="0.065">
-            <p class="cap__kicker">A free map of meetups near you</p>
+          <article class="cap cap--hero" data-from="-1" data-to="0.12">
+            <p class="cap__kicker">Meetups made simple.</p>
             <h1>find your people</h1>
-            <p class="cap__lead">Walks, runs, coffee and more. Pick one, turn up, make friends.</p>
+            <p class="cap__lead">A free map of meetups near you.</p>
             <div class="cap__cta">
               <a class="store" href="https://apps.apple.com/app/packmates/id6822292523"><img src="images/app-store.svg" alt="Download on the App Store" width="135" height="40"></a>
               <a class="btn btn--line" href="https://www.packmates.live">Open the map</a>
@@ -85,73 +85,33 @@
             <a class="btn btn--line optin" href="?3d=1">See it in 3D</a>
           </article>
 
-          <article class="cap" data-from="0.095" data-to="0.195">
-            <p class="cap__step"><b>1</b>Post a meetup</p>
-            <h2>A packed train. Nobody to talk to.</h2>
-            <p>Friday night, on the way home from work. Surrounded by people, and lonely. So he posts a run for tomorrow: what, where, when. Done.</p>
+          <article class="cap cap--big cap--top" data-from="0.14" data-to="0.29">
+            <p class="cap__step"><b>1</b>Pick a pin</p>
+            <h2>Every pin is a meetup.</h2>
+            <p>A walk, a run, a coffee.</p>
           </article>
 
-          <article class="cap" data-from="0.205" data-to="0.275">
-            <p class="cap__step"><b>📍</b>On the map</p>
-            <h2>His run is now a pin on the map.</h2>
-            <p>Anyone nearby can see it and join. No group chats, no small talk first.</p>
-          </article>
-
-          <article class="cap" data-from="0.305" data-to="0.385">
-            <p class="cap__step"><b>🏙️</b>Across the city</p>
-            <h2>Up in a tower, another night in alone.</h2>
-            <p>In bed, scrolling, feeling low. He'd love to meet people too. But where do you start?</p>
-          </article>
-
-          <article class="cap" data-from="0.395" data-to="0.44">
+          <article class="cap cap--big cap--top" data-from="0.3" data-to="0.445">
             <p class="cap__step"><b>2</b>Tap I'm in</p>
-            <h2>Then a run pops up nearby.</h2>
-            <p>Tomorrow, 8:00, round the corner. One tap: <strong>I'm in</strong>.</p>
+            <h2>Tap I'm in. That's it.</h2>
+            <p>No messages. No group chats. Nobody can message you.</p>
           </article>
 
-          <article class="cap" data-from="0.45" data-to="0.492">
-            <p class="cap__step"><b>🌙</b>Overnight</p>
-            <h2>For once, there's somewhere to be.</h2>
-            <p>The night goes by. Morning comes. Up and out.</p>
-          </article>
-
-          <article class="cap" data-from="0.52" data-to="0.6">
+          <article class="cap cap--big cap--top" data-from="0.455" data-to="0.615">
             <p class="cap__step"><b>3</b>Turn up</p>
-            <h2>Saturday, 8:00. The two of them meet.</h2>
-            <p>A wave, a hello, a high five. No awkward chat first. Already easier than either of them thought.</p>
+            <h2>Just a time and a place.</h2>
+            <p>Meet in public. Make friends. Don't be late 👍</p>
           </article>
 
-          <article class="cap" data-from="0.685" data-to="0.775">
-            <p class="cap__step"><b>🏃</b>The run</p>
-            <h2>Three more turned up too.</h2>
-            <p>A run that was a pin on a map last night is now five people, out of breath, laughing.</p>
+          <article class="cap cap--big" data-from="0.63" data-to="0.8">
+            <h2>Not a runner?</h2>
+            <p>Coffee, walks, a kickabout. If you'd do it with friends, it's here.</p>
           </article>
 
-          <article class="cap" data-from="0.815" data-to="0.885">
-            <p class="cap__step"><b>☕</b>Coffee</p>
-            <h2>Not a runner? Grab a coffee.</h2>
-            <p>One table, a few new faces, somewhere public. The easiest hello there is.</p>
-          </article>
-
-          <article class="cap" data-from="0.925" data-to="0.99">
-            <p class="cap__step"><b>🚶</b>Walks</p>
-            <h2>Or take the long way round.</h2>
-            <p>A walk in the park, a hike up the hill. Dogs welcome.</p>
-          </article>
-
-          <article class="cap" data-from="1.025" data-to="1.09">
-            <p class="cap__step"><b>⚽</b>And more</p>
-            <h2>Whatever gets you out.</h2>
-            <p>A kickabout, a swim, a board game. If you'd do it with friends, post it.</p>
-          </article>
-
-          <article class="cap cap--quote" data-from="1.135" data-to="1.205">
-            <blockquote>Every stranger is a door to a new world. Open more doors, expand your world.</blockquote>
-          </article>
-
-          <article class="cap cap--end" data-from="1.23" data-to="3">
-            <h2>Every pin is a meetup.<br>One of them is yours.</h2>
-            <p>Packmates is free. Find a meetup, tap I'm in, turn up.</p>
+          <article class="cap cap--end" data-from="0.86" data-to="3">
+            <h2>Been to one?<br>Post your own.</h2>
+            <p class="post-line"><span class="post-pill">＋ Post</span></p>
+            <p>Find a meetup. Tap I'm in. Turn up.</p>
             <div class="cap__cta">
               <a class="store" href="https://apps.apple.com/app/packmates/id6822292523"><img src="images/app-store.svg" alt="Download on the App Store" width="135" height="40"></a>
               <a class="btn btn--white" href="https://www.packmates.live">Join free</a>
@@ -160,18 +120,12 @@
         </div>
 
         <ol class="rail" aria-hidden="true">
-          <li data-at="0">Hello</li>
-          <li data-at="0.095">Post</li>
-          <li data-at="0.205">The pin</li>
-          <li data-at="0.305">Across town</li>
-          <li data-at="0.395">I'm in</li>
-          <li data-at="0.45">Overnight</li>
-          <li data-at="0.52">They meet</li>
-          <li data-at="0.685">The run</li>
-          <li data-at="0.815">Coffee</li>
-          <li data-at="0.925">Walks</li>
-          <li data-at="1.025">More</li>
-          <li data-at="1.135">The map</li>
+          <li data-at="0">Find</li>
+          <li data-at="0.14">Pick a pin</li>
+          <li data-at="0.3">I'm in</li>
+          <li data-at="0.455">Turn up</li>
+          <li data-at="0.63">More</li>
+          <li data-at="0.86">Your turn</li>
         </ol>
         <a class="stage__skip" href="#how">Skip the tour ↓</a>
       </div>
@@ -244,6 +198,6 @@
     </div>
   </footer>
 
-  <script src="js/main.js?v=7" defer></script>
+  <script src="js/main.js?v=8" defer></script>
 </body>
 </html>
