@@ -379,6 +379,12 @@ const HOST_LOOK = { top: 0x5c3820, sleeve: 0xb9cdea, gilet: true, bottom: 0x1e24
 // On Saturday's run: the same man, in a brown running top so he is easy to spot.
 const HOST_RUN = { top: 0x8a5a34, bottom: 0x1f2340, skin: 0xd9a273, hair: 0x2a1d18, style: 0, shoes: 0xffffff, shorts: true };
 const GUEST_LOOK = { top: 0xf97316, bottom: 0x3b3350, skin: 0xf2c9a5, hair: 0x8a5a2c, style: 0, shoes: 0x22d3ee };
+// the five on Saturday's run, who then go for coffee in the same kit
+const RUN_LOOKS = [
+  { ...HOST_RUN, h: 1 },
+  { ...GUEST_LOOK, h: 0.97 },
+  ...[0xfbbf24, 0x38bdf8, 0x34d399].map((top, i) => ({ top, shorts: true, sleeves: i % 2 === 1, skin: SKINS[(i + 2) % SKINS.length], style: (i + 2) % 3, bottom: 0x2b2f55, hair: [0x151318, 0xd7b46a, 0x4a2f20][i], shoes: [0xf43f5e, 0xfde047, 0x22d3ee][i] })),
+];
 // Lit windows for the city's towers, tiled so a window stays about a metre across.
 const CITY = {};
 {
@@ -596,9 +602,7 @@ const runners = [];
   const spots = [[0, 0], [0.8, 1.3], [-0.75, 1.5], [0.15, 2.9], [-0.9, 3.9]];
   const tops = [0x7c3aed, 0xec4899, 0xfbbf24, 0x38bdf8, 0x34d399];
   spots.forEach(([dx, dz], i) => {
-    const P = i === 0 ? person({ ...HOST_RUN, h: 1 })           // the two we have been following,
-      : i === 1 ? person({ ...GUEST_LOOK, h: 0.97 })            // and three more who tapped "I'm in"
-        : person({ top: tops[i], shorts: true, sleeves: i % 2 === 0, skin: SKINS[i % SKINS.length], style: i % 3 });
+    const P = person(RUN_LOOKS[i]);
     P.slot = v(RUN_R + dx, 0, dz);
     P.face = Math.PI - dz / RUN_R;
     P.g.position.set(RUN_R + dx, 0, dz);
@@ -651,7 +655,7 @@ const steam = [];
   const tops = [0xfbbf24, 0x7c3aed, 0x38bdf8, 0xec4899, 0x34d399];
   for (let i = 0; i < 5; i++) {
     const a = (i / 5) * Math.PI * 2 + 0.3;
-    const P = person({ top: tops[i], skin: SKINS[(i + 2) % SKINS.length], style: (i + 1) % 3 });
+    const P = person(RUN_LOOKS[i]);              // the same five as on the run: it was a run, then coffee
     P.g.position.set(Math.sin(a) * 1.45, 0, Math.cos(a) * 1.45);
     P.g.rotation.y = a + Math.PI;
     p.add(P.g);
@@ -1578,6 +1582,7 @@ function frame() {
     });
   }
   for (const b of beacons) {
+    b.g.visible = false;                         // the big pin over these scenes is drawn in the page now (js/mapui.js)
     b.g.position.y = b.base + Math.sin(t * 1.3 + b.phase) * 0.25;
     b.g.rotation.y = t * 0.6 + b.phase;
   }
