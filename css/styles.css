@@ -356,9 +356,8 @@ ol, ul { padding: 0; list-style: none; }
 }
 @media (min-width: 761px) { .tour .mapui__badge { left: 72%; top: 16vh; width: 124px; height: 161px; } }
 .mapui__badge-pin { display: block; width: 100%; height: 100%; }
-.mapui__emoji { position: absolute; left: 50%; top: 35%; width: 62%; aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; background: #fff; }
-.mapui__emoji i { position: absolute; inset: 0; display: grid; place-items: center; font-style: normal; font-size: 2.3rem; opacity: 0; transform: rotateY(90deg); transition: opacity .25s, transform .35s; }
-.mapui__emoji i.is-on { opacity: 1; transform: none; }
+.mapui__swap { position: absolute; inset: 0; opacity: 0; transform: rotateY(90deg) scale(.9); transition: opacity .25s, transform .4s cubic-bezier(.3, 1.5, .5, 1); }
+.mapui__swap.is-on { opacity: 1; transform: none; }
 
 .post-pill {
   display: inline-flex; align-items: center; padding: 10px 24px; border-radius: 999px; font-weight: 800; font-size: 1.25rem; color: #fff;

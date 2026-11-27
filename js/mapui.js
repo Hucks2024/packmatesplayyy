@@ -119,7 +119,8 @@ export function createMapUI(stage) {
   const badge = document.createElement('div');
   badge.className = 'mapui__badge';
   badge.setAttribute('aria-hidden', 'true');
-  badge.innerHTML = `${pinSVG('mapui__badge-pin')}<span class="mapui__emoji"><i>☕</i><i>🚶</i><i>⚽</i></span>`;
+  // one pin for each of coffee, a walk and a kickabout, the same pin the map uses; they swap as you scroll
+  badge.innerHTML = ['☕', '🚶', '⚽'].map((e) => `<span class="mapui__swap">${pinSVG('mapui__badge-pin', e)}</span>`).join('');
   stage.insertBefore(badge, stage.querySelector('.caps'));
 
   const plane = el.querySelector('.mapui__plane');
@@ -132,7 +133,7 @@ export function createMapUI(stage) {
   const count = el.querySelector('.mapui__count');
   const btn = el.querySelector('.mapui__btn');
   const thumb = el.querySelector('.mapui__thumb');
-  const emojis = [...el.querySelectorAll('.mapui__emoji i')];
+  const emojis = [...badge.querySelectorAll('.mapui__swap')];
 
   // the pins: the run in the park, and the other meetups around it, popping in from the middle outwards
   const TARGET = { x: 800, y: 735 };

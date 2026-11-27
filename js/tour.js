@@ -1052,18 +1052,34 @@ pinSpots.forEach((s) => { s.far = Math.hypot(s.p.x, s.p.z); s.phase = rr(0, 6.28
 }
 pinSpots.sort((a, b) => a.p.z - b.p.z);            // far ones first, so nearer pins are drawn over them
 // The pin itself is the app's own: a flat picture that always faces the camera, standing on its point.
-const pinTex = canvasTex(192, 256, (g, w, h) => {
-  g.shadowColor = 'rgba(20,6,50,.55)'; g.shadowBlur = 10; g.shadowOffsetY = 3;
-  drawPin(g, w / 2, h - 14, h - 28);
+// Like the app, each pin shows its meetup's activity: one set of pins per emoji.
+const PIN_EMOJI = ['🏃', '☕', '🚶', '⚽', '🧘', '🎲', '🚴', '🏊', '🎾', '🍕'];
+const pinCounts = PIN_EMOJI.map(() => 0);
+pinSpots.forEach((spot, i) => {
+  spot.k = spot.home ? 0 : (i * 7) % PIN_EMOJI.length;
+  spot.j = pinCounts[spot.k]++;
 });
-const mapPins = new THREE.InstancedMesh(
-  new THREE.PlaneGeometry(0.75, 1).translate(0, 0.5 - 14 / 256, 0),
-  new THREE.MeshBasicMaterial({ map: pinTex, transparent: true, depthWrite: false, toneMapped: false, fog: false }),
-  pinSpots.length,
-);
-mapPins.frustumCulled = false;
-mapPins.renderOrder = 3;
-world.add(mapPins);
+const pinPlane = new THREE.PlaneGeometry(0.75, 1).translate(0, 0.5 - 14 / 256, 0);
+const pinMeshes = PIN_EMOJI.map((emoji, k) => {
+  const tex = canvasTex(192, 256, (g, w, h) => {
+    const s = h - 28, x = w / 2, y = h - 14;
+    g.shadowColor = 'rgba(20,6,50,.55)'; g.shadowBlur = 10; g.shadowOffsetY = 3;
+    drawPin(g, x, y, s);
+    g.shadowColor = 'transparent';
+    g.fillStyle = '#fff';
+    g.beginPath(); g.arc(x, y - s * 0.645, s * 0.27, 0, 7); g.fill();
+    g.font = `${Math.round(s * 0.3)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(emoji, x, y - s * 0.63);
+  });
+  // drawn into the depth buffer (cut out where see-through), so near pins cover far ones whatever their emoji
+  const m = new THREE.InstancedMesh(pinPlane, new THREE.MeshBasicMaterial({ map: tex, alphaTest: 0.4, toneMapped: false, fog: false }), Math.max(1, pinCounts[k]));
+  m.count = pinCounts[k];
+  m.frustumCulled = false;
+  m.renderOrder = 3;
+  world.add(m);
+  return m;
+});
 
 const pulse = mesh(new THREE.RingGeometry(0.86, 1, 48), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false }), world, [0, 0.06, 0], 1, [-Math.PI / 2, 0, 0]);
 pulse.castShadow = false;
@@ -1613,9 +1629,9 @@ function frame() {
       dummy.position.y = pop > 0 ? (0.5 + 0.5 * Math.sin(t * 1.7 + spot.phase)) * size * 0.1 : 0;
       dummy.scale.setScalar(Math.max(k, 0.0001));
       dummy.updateMatrix();
-      mapPins.setMatrixAt(i, dummy.matrix);
+      pinMeshes[spot.k].setMatrixAt(spot.j, dummy.matrix);
     });
-    mapPins.instanceMatrix.needsUpdate = true;
+    for (const m of pinMeshes) m.instanceMatrix.needsUpdate = true;
     const ring = (t * 0.5) % 1;
     pulse.scale.setScalar(size * 0.45 * (1 + ring * 5));
     pulse.material.opacity = smooth(0.87, 0.9, p) * (1 - ring) * 0.8;
